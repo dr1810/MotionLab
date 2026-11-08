@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MotionLab</title>
+  <meta name="claude:viewport-fit-sides" content="cover">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    /* Layout: a lab-notebook workbench. Tool strip on top, a property sheet
+       on the left, graph-paper stage (1 square = 1 m) filling the rest. */
+    :root {
+      --bg: #eef1f4;
+      --panel: #ffffff;
+      --ink: #17212e;
+      --muted: #5b6878;
+      --line: #d8dee6;
+      --accent: #2f5fd0;
+      --accent-ink: #ffffff;
+      --stage-bg: #f9fbfc;
+      --stage-grid: rgba(47, 95, 208, 0.09);
+      --stage-ink: #17212e;
+      --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0f141b;
+        --panel: #161d26;
+        --ink: #e4e9f0;
+        --muted: #93a0b0;
+        --line: #283342;
+        --accent: #7aa2ff;
+        --accent-ink: #0f141b;
+        --stage-bg: #121922;
+        --stage-grid: rgba(122, 162, 255, 0.10);
+        --stage-ink: #e4e9f0;
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f141b;
+      --panel: #161d26;
+      --ink: #e4e9f0;
+      --muted: #93a0b0;
+      --line: #283342;
+      --accent: #7aa2ff;
+      --accent-ink: #0f141b;
+      --stage-bg: #121922;
+      --stage-grid: rgba(122, 162, 255, 0.10);
+      --stage-ink: #e4e9f0;
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font: 14px/1.45 var(--font-ui);
+      color: var(--ink);
+      background: var(--bg);
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px 14px;
+      flex-wrap: wrap;
+      padding-block: 10px;
+      padding-left: max(16px, env(safe-area-inset-left, 0px));
+      padding-right: max(16px, env(safe-area-inset-right, 0px));
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; margin-right: 4px; }
+    .group { display: flex; gap: 4px; flex-wrap: wrap; }
+    button {
+      font: inherit;
+      color: var(--ink);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--muted); }
+    button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button.active { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 500; }
+    kbd { font-family: var(--font-data); font-size: 11px; opacity: 0.55; margin-left: 5px; }
+    .status {
+      margin-left: auto;
+      font-family: var(--font-data);
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    main { display: grid; grid-template-columns: 272px minmax(0, 1fr); min-height: 0; }
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding-block: 16px;
+      padding-left: max(16px, env(safe-area-inset-left, 0px));
+      padding-right: 16px;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    section { display: flex; flex-direction: column; gap: 8px; }
+    h2 {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    .field { display: flex; flex-direction: column; gap: 3px; }
+    .field span { font-size: 12px; color: var(--muted); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    input[type=number], input[type=text], textarea {
+      width: 100%;
+      font: 13px var(--font-data);
+      color: var(--ink);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type=text] { font-family: var(--font-ui); }
+    input:disabled { opacity: 0.5; }
+    textarea { min-height: 90px; resize: vertical; font-size: 11px; }
+    .check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+    .hint, .empty { font-size: 12px; color: var(--muted); margin: 0; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    #stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
+    .motionlab-canvas { display: block; }
+    .motionlab-canvas[data-tool="circle"],
+    .motionlab-canvas[data-tool="box"],
+    .motionlab-canvas[data-tool="pen"],
+    .motionlab-canvas[data-tool="line"] { cursor: crosshair; }
+    .motionlab-canvas[data-tool="erase"] { cursor: not-allowed; }
+
+    /* phone: stage on top, property sheet underneath, page scrolls */
+    @media (max-width: 720px) {
+      html, body { height: auto; }
+      body { display: block; }
+      main { grid-template-columns: minmax(0, 1fr); }
+      #stage { height: 62vh; order: -1; }
+      aside {
+        border-right: 0;
+        border-top: 1px solid var(--line);
+        padding-right: max(16px, env(safe-area-inset-right, 0px));
+      }
+      .status { margin-left: 0; width: 100%; }
+      kbd { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="brand">MotionLab</span>
+    <div class="group" id="toolbar" role="toolbar" aria-label="Drawing tools"></div>
+    <div class="group">
+      <button id="play" class="primary">Start</button>
+      <button id="reset">Reset</button>
+      <button id="clear">Clear</button>
+    </div>
+    <span class="status" id="status">t = 0.00 s</span>
+  </header>
+
+  <main>
+    <!-- Temporary property sheet for testing the drawing module.
+         The UI team replaces it; it only shows how a panel talks to lab.world. -->
+    <aside>
+      <section>
+        <h2>World</h2>
+        <label class="field"><span>Gravity (m/s²)</span>
+          <input id="gravity" type="number" step="0.1" value="9.8"></label>
+      </section>
+
+      <section>
+        <h2>Selected object</h2>
+        <div id="props"><p class="empty">Pick an object with Select, or draw a new one.</p></div>
+      </section>
+
+      <section>
+        <h2>Scene file</h2>
+        <p class="hint">Copy the scene as JSON to share it, or paste one and load it.</p>
+        <textarea id="json" aria-label="Scene JSON" spellcheck="false"></textarea>
+        <div class="actions">
+          <button id="export">Copy scene</button>
+          <button id="import">Load pasted scene</button>
+        </div>
+        <p class="hint" id="json-msg" aria-live="polite"></p>
+      </section>
+
+      <section>
+        <h2>How to draw</h2>
+        <p class="hint">Ball and Box: drag to size, or click for a default. Draw: sketch any closed shape. Wall: drag a fixed ramp (Shift snaps to 15°). Select: drag to move, drag while running to throw, scroll to rotate.</p>
+      </section>
+    </aside>
+    <div id="stage"></div>
+  </main>
+
+  <script src="vendor/decomp.min.js"></script>
+  <script src="vendor/matter.min.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/tools.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const lab = MotionLab.create(document.getElementById('stage'), { demoScene: true });
+    const { world, tools } = lab;
+    window.lab = lab; // handy in the browser console
+
+    /* ----- toolbar ----- */
+    const TOOL_LABELS = {
+      select: ['Select', 'V'], circle: ['Ball', 'C'], box: ['Box', 'B'],
+      pen: ['Draw', 'P'], line: ['Wall', 'L'], erase: ['Erase', 'E'],
+    };
+    const toolbar = document.getElementById('toolbar');
+    MotionLab.TOOLS.forEach((name) => {
+      const b = document.createElement('button');
+      b.id = 'tool-' + name;
+      b.dataset.tool = name;
+      b.innerHTML = `${TOOL_LABELS[name][0]}<kbd>${TOOL_LABELS[name][1]}</kbd>`;
+      b.onclick = () => tools.setTool(name);
+      toolbar.appendChild(b);
+    });
+    tools.on('tool', (name) => {
+      toolbar.querySelectorAll('button').forEach((b) => {
+        const on = b.dataset.tool === name;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on);
+      });
+    });
+    tools.setTool('select');
+
+    /* ----- playback ----- */
+    const playBtn = document.getElementById('play');
+    playBtn.onclick = () => world.toggle();
+    document.getElementById('reset').onclick = () => world.reset();
+    document.getElementById('clear').onclick = () => { world.reset(); world.clear(); };
+    world.on('state', (s) => { playBtn.textContent = s.running ? 'Pause' : s.fresh ? 'Start' : 'Resume'; });
+    const status = document.getElementById('status');
+    setInterval(() => {
+      const n = world.objects.size;
+      status.textContent = `t = ${world.state().time.toFixed(2)} s · ${n} object${n === 1 ? '' : 's'}`;
+    }, 100);
+
+    /* ----- save / load (no browser dialogs: they are blocked here) ----- */
+    const jsonBox = document.getElementById('json');
+    const jsonMsg = document.getElementById('json-msg');
+    document.getElementById('export').onclick = () => {
+      jsonBox.value = JSON.stringify(world.toJSON());
+      navigator.clipboard.writeText(jsonBox.value)
+        .then(() => { jsonMsg.textContent = 'Copied to the clipboard.'; })
+        .catch(() => { jsonBox.select(); jsonMsg.textContent = 'Selected. Copy it with Ctrl+C or Cmd+C.'; });
+    };
+    document.getElementById('import').onclick = () => {
+      try {
+        const data = JSON.parse(jsonBox.value);
+        world.reset();
+        world.loadJSON(data);
+        jsonMsg.textContent = `Loaded ${world.objects.size} objects.`;
+      } catch (e) {
+        jsonMsg.textContent = 'That text is not a MotionLab scene. Paste the JSON from "Copy scene".';
+      }
+    };
+
+    /* ----- gravity ----- */
+    const gravity = document.getElementById('gravity');
+    gravity.oninput = () => world.setGravity(parseFloat(gravity.value) || 0);
+    world.on('change', (c) => { if (c.type === 'load') gravity.value = world.getGravity().toFixed(1); });
+
+    /* ----- selected object sheet ----- */
+    const props = document.getElementById('props');
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    function renderProps() {
+      const id = tools.selectedId;
+      const o = world.describe(id);
+      if (!o) { props.innerHTML = '<p class="empty">Pick an object with Select, or draw a new one.</p>'; return; }
+      props.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <label class="field"><span>Name</span><input id="p-label" type="text" data-k="label" value="${esc(o.label)}"></label>
+          <label class="field"><span>Mass (kg)</span><input id="p-mass" type="number" data-k="mass" step="0.1" min="0.01" value="${o.isStatic ? '' : o.mass.toFixed(2)}" ${o.isStatic ? 'disabled' : ''}></label>
+          <div class="row">
+            <label class="field"><span>Friction</span><input id="p-friction" type="number" data-k="friction" step="0.05" min="0" max="1" value="${o.friction}"></label>
+            <label class="field"><span>Bounciness</span><input id="p-restitution" type="number" data-k="restitution" step="0.05" min="0" max="1" value="${o.restitution}"></label>
+          </div>
+          <div class="row">
+            <label class="field"><span>Start vx (m/s)</span><input id="p-vx" type="number" data-k="vx" step="0.5" value="${o.initialVelocity.x}"></label>
+            <label class="field"><span>Start vy (m/s)</span><input id="p-vy" type="number" data-k="vy" step="0.5" value="${o.initialVelocity.y}"></label>
+          </div>
+          <p class="hint">Negative vy throws upward.</p>
+          <label class="check"><input id="p-static" type="checkbox" data-k="isStatic" ${o.isStatic ? 'checked' : ''}> Fixed in place</label>
+          <div class="actions"><button id="del">Delete object</button></div>
+        </div>`;
+      props.querySelectorAll('input').forEach((input) => {
+        input.onchange = () => {
+          const k = input.dataset.k;
+          if (k === 'vx' || k === 'vy') {
+            const v = world.get(id).initialVelocity;
+            world.setProperty(id, 'initialVelocity', { ...v, [k === 'vx' ? 'x' : 'y']: parseFloat(input.value) || 0 });
+          } else if (k === 'isStatic') {
+            world.setProperty(id, k, input.checked);
+            renderProps();
+          } else {
+            world.setProperty(id, k, input.type === 'number' ? parseFloat(input.value) : input.value);
+          }
+        };
+      });
+      document.getElementById('del').onclick = () => world.remove(id);
+    }
+    tools.on('select', renderProps);
+    world.on('change', (c) => { if (c.type === 'load') renderProps(); });
+  </script>
+</body>
+</html>
