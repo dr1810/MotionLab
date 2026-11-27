@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>MotionLab ↗</h1><p>A tiny experiment. A little trial and error.</p>
+<div class="workspace"><form id="controls"><strong>Launch settings</strong>
+<label>Angle <output id="angleValue">45°</output><input aria-label="Launch angle" id="angle" type="range" min="5" max="85" value="45"></label>
+<label>Speed <output id="speedValue">17 m/s</output><input aria-label="Launch speed" id="speed" type="range" min="5" max="25" value="17"></label>
+<button id="launch">▶ Launch</button><button type="button" class="secondary" id="reset">↺ Reset</button>
+<p class="footnote">Gravity: 9.81 m/s²<br>No air resistance</p></form>
+<div class="pane"><p class="mission"><strong>Your mission:</strong> land the supply ball on the purple target, 30 meters away.</p>
+<canvas id="scene" aria-label="Animated projectile experiment with a target at 30 meters"></canvas>
+<div class="readout"><span id="measurements">Time 0.00 s · Distance 0.0 m · Height 0.0 m</span><div id="status" role="status">Ready to launch</div></div></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/simulation.js') }}" defer></script>
+{% endblock %}
