@@ -20,3 +20,9 @@ For a fresh installation, create a virtual environment and install requirements.
 - `templates/index.html`: experiment interface
 - `static/css/style.css`: page styles
 - `static/js/simulation.js`: animation and controls
+
+## Prototype modules (contract v1)
+
+The block-programming prototype lives in `static/js/motionlab/` (ES modules, no dependencies).
+Open the block lab at http://127.0.0.1:5050/lab. Run the tests with `npm test` (Node 20+). Spec: `docs/CONTRACT.md`. Setup, commands and open items: `docs/HANDOFF.md`.
+Canonical fixture: `fixtures/ball-and-box.program.json` with expected state in `fixtures/ball-and-box.expected.json`.

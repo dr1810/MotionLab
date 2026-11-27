@@ -1,0 +1,22 @@
+{
+  "contractVersion": 1,
+  "program": "fixtures/ball-and-box.program.json",
+  "tolerance": 1e-9,
+  "notes": "initial = createSimulation(program).snapshot() and also reset(). afterTick1 = first step(): ball gets the one-tick force impulse (120 N * 1/120 s / 1 kg = +1 m/s) plus gravity; the box rests on the floor (y = 0) with zero velocity.",
+  "initial": {
+    "tick": 0,
+    "time": 0,
+    "bodies": [
+      { "id": "box", "shape": "box", "position": { "x": 2, "y": 0.5 }, "velocity": { "x": 0, "y": 0 }, "dimensions": { "width": 1, "height": 1 }, "static": false },
+      { "id": "ball", "shape": "circle", "position": { "x": 0, "y": 3 }, "velocity": { "x": 1.5, "y": 0 }, "dimensions": { "radius": 0.25 }, "static": false }
+    ]
+  },
+  "afterTick1": {
+    "tick": 1,
+    "time": 0.008333333333333333,
+    "bodies": [
+      { "id": "box", "shape": "box", "position": { "x": 2, "y": 0.5 }, "velocity": { "x": 0, "y": 0 }, "dimensions": { "width": 1, "height": 1 }, "static": false },
+      { "id": "ball", "shape": "circle", "position": { "x": 0.020833333333333332, "y": 2.99931875 }, "velocity": { "x": 2.5, "y": -0.08175 }, "dimensions": { "radius": 0.25 }, "static": false }
+    ]
+  }
+}

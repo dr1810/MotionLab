@@ -1,0 +1,13 @@
+{
+  "name": "motionlab",
+  "private": true,
+  "description": "MotionLab prototype: block programs compiled to a deterministic 2D physics simulation.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\"",
+    "check": "node --check static/js/simulation.js && node --test \"tests/*.test.js\""
+  }
+}

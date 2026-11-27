@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}MotionLab · Block lab{% endblock %}
+{% block body_class %}lab{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/lab.css') }}">
+{% endblock %}
+
+{% block content %}
+<header class="lab-header">
+    <div>
+        <h1>MotionLab block lab</h1>
+        <p>Snap blocks under <strong>when experiment starts</strong>, then press Run. <a href="/">Projectile demo</a></p>
+    </div>
+    <div class="file-actions" role="group" aria-label="File">
+        <button type="button" class="secondary" id="example">Example</button>
+        <button type="button" class="secondary" id="clear">Clear</button>
+        <button type="button" class="secondary" id="open">Open…</button>
+        <button type="button" class="secondary" id="save">Save</button>
+        <button type="button" class="secondary" id="export">Export program</button>
+        <input type="file" id="fileInput" accept=".json,application/json" hidden>
+    </div>
+</header>
+
+<div class="lab-grid">
+    <div id="blocklyDiv" class="blockly-host" aria-label="Block editor" data-blockly-version="{{ blockly_version }}"></div>
+    <section class="stage">
+        <canvas id="stage" aria-label="Physics simulation"></canvas>
+        <div class="controls" role="group" aria-label="Playback">
+            <button type="button" id="run">▶ Run</button>
+            <button type="button" class="secondary" id="step">Step</button>
+            <button type="button" class="secondary" id="reset">↺ Reset</button>
+            <span id="clock" class="clock">tick 0 · 0.000 s</span>
+        </div>
+        <div id="status" class="status" role="status">Loading…</div>
+        <ul id="errors" class="errors" aria-label="Problems"></ul>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/blockly@{{ blockly_version }}/blockly.min.js"></script>
+<script type="module" src="{{ url_for('static', filename='js/lab.js') }}"></script>
+{% endblock %}

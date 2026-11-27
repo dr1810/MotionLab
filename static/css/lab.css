@@ -1,0 +1,27 @@
+body.lab { max-width: 1320px; margin: 16px auto; }
+.lab-header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; margin-bottom: 14px; }
+.lab-header p { margin: 4px 0 0; }
+.lab-header a, .lab-header a:visited { color: #7953cf; }
+.file-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-actions button, .controls button { padding: 8px 12px; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+
+.lab-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; }
+.blockly-host { height: 560px; background: white; border: 1px solid #e5deef; border-radius: 16px; overflow: hidden; }
+.stage { background: white; border: 1px solid #e5deef; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.stage canvas { height: 380px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid #eee8f5; }
+.clock { margin-left: auto; font-size: 12px; color: #80758e; font-variant-numeric: tabular-nums; }
+.status { padding: 0 16px 8px; min-height: 24px; color: #7953cf; font-size: 13px; }
+.status.bad { color: #b3261e; }
+.errors { list-style: none; margin: 0; padding: 0 16px 14px; font-size: 13px; overflow: auto; max-height: 130px; }
+.errors li { padding: 6px 8px; border-radius: 6px; background: #fdf1f0; color: #7a1c15; margin-top: 4px; }
+.errors li[data-block] { cursor: pointer; }
+.errors li[data-block]:hover { background: #fbe1df; }
+.errors code { font-size: 11px; color: #b3261e; margin-right: 6px; }
+
+@media (max-width: 900px) {
+  .lab-grid { grid-template-columns: 1fr; }
+  .blockly-host { height: 420px; }
+  .stage canvas { height: 300px; }
+}
