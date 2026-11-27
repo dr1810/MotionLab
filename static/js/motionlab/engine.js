@@ -1,6 +1,7 @@
 // MotionLab engine: interprets a program v1 into a deterministic 2D scene and steps it.
-// Own minimal engine (no Matter.js): SI units, +x right, +y up, body-centered positions,
-// axis-aligned boxes and circles, no rotation, no friction. Spec: docs/CONTRACT.md
+// Pure JavaScript, no physics library (no Matter.js) and no browser APIs: SI units, +x right, +y up,
+// body-centered positions, axis-aligned boxes and circles, no rotation, no friction. The caller owns
+// frame timing; each step() advances exactly DT. Spec: docs/CONTRACT.md
 
 import { DT, FLOOR_Y, DEFAULT_GRAVITY, ProgramError, validateProgram } from './contract.js';
 
@@ -38,9 +39,10 @@ function interpret(program) {
           width: circle ? 0 : cmd.width,
           height: circle ? 0 : cmd.height,
           mass: cmd.mass,
+          invMass: cmd.static ? 0 : 1 / cmd.mass, // static bodies: zero inverse mass, never integrated
           restitution: cmd.restitution,
           static: cmd.static,
-          fx: 0, // force accumulated for the first tick only
+          fx: 0, // one-tick force (N): applied by the first step, then cleared; reset() restores it
           fy: 0,
         };
         scene.bodies.push(body);
@@ -117,7 +119,7 @@ function contact(a, b) {
   return { nx: dx / d, ny: dy / d, depth: b.radius - d };
 }
 
-const invMass = (b) => (b === FLOOR || b.static ? 0 : 1 / b.mass);
+const invMass = (b) => (b === FLOOR ? 0 : b.invMass);
 
 /**
  * Collect this step's contacts (body pairs in creation order, then the floor) after integration.
@@ -224,25 +226,24 @@ export function createSimulation(program) {
   }
 
   function step() {
-    const firstTick = tick === 0;
+    // Bodies are always visited in creation order, so results are deterministic.
     for (const b of bodies) {
-      if (b.static) continue;
-      let ax = gravity.x;
-      let ay = gravity.y;
-      if (firstTick) {
-        ax += b.fx / b.mass;
-        ay += b.fy / b.mass;
-      }
-      // Semi-implicit Euler: velocity first, then position with the new velocity.
+      if (b.invMass === 0) continue; // static
+      // Semi-implicit Euler: a = g + F/m; v += a*dt; then p += v*dt with the new velocity.
+      const ax = gravity.x + b.fx * b.invMass;
+      const ay = gravity.y + b.fy * b.invMass;
       b.vx += ax * DT;
       b.vy += ay * DT;
       b.x += b.vx * DT;
       b.y += b.vy * DT;
+      // One-tick forces live for this step only.
+      b.fx = 0;
+      b.fy = 0;
     }
     const contacts = collectContacts(bodies);
     for (let pass = 0; pass < SOLVER_ITERATIONS; pass++) solveVelocities(contacts);
     for (let pass = 0; pass < POSITION_ITERATIONS; pass++) correctPositions(bodies);
-    tick += 1;
+    tick += 1; // time is always derived as tick * DT, never accumulated
     return snapshot();
   }
 

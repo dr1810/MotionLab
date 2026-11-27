@@ -153,7 +153,9 @@ sim.reset();    // back to the compiled initial scene, tick 0, forces re-armed; 
 
 ### Step algorithm (what to expect when diagnosing)
 
-1. Dynamic bodies: `v += (g + F/m on tick 1 only)·DT`, then `x += v·DT` (semi-implicit Euler).
+1. Dynamic bodies, in creation order: `a = g + F·invMass`, `v += a·DT`, then `x += v·DT` (semi-implicit Euler).
+   Static bodies have `invMass = 0` and are skipped. The one-tick force `F` is cleared after this step, and
+   `reset()` restores it.
 2. Collect contacts: body pairs in creation order, then floor contacts. Each contact's target separation speed is
    `e·|vn|` if it is closing faster than `REST_SPEED` (0.2 m/s), else 0. Pairs use `e = max(eA, eB)`; the floor
    uses the body's restitution.

@@ -30,7 +30,7 @@ and prototype tests: Claude. Spec: [CONTRACT.md](CONTRACT.md).
 | `GET /static/js/simulation.js`, `/static/css/style.css` | 200 (`text/javascript`, `text/css`) |
 | `GET /lab` | **500, `TemplateNotFound: lab.html`** (template deleted). Fixed: page rebuilt |
 | `GET /fixtures/ball-and-box.program.json` | **404** (fixture deleted). Now 200 again |
-| `npm test` | not runnable (`package.json` deleted). Now 64/64 pass |
+| `npm test` | not runnable (`package.json` deleted). Now 76/76 pass |
 
 ## Current state
 
@@ -52,7 +52,7 @@ files, autosave).
 | `static/js/lab.js` | page glue: Blockly ↔ compiler ↔ engine ↔ canvas, files, autosave. No logic worth unit-testing lives here |
 | `templates/lab.html`, `static/css/lab.css` | the block lab page |
 | `fixtures/ball-and-box.{program,workspace,expected}.json` | canonical fixture (the workspace is what Example loads) |
-| `tests/{contract,engine,compile,view,frontend}.test.js`, `tests/helpers.js` | 64 tests |
+| `tests/{contract,engine,integrator,compile,view,frontend}.test.js`, `tests/helpers.js` | 76 tests |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
 ## The block lab (`/lab`)
@@ -101,6 +101,13 @@ Test:
 npm test
 ```
 
+Engine integrator tests only (constant velocity, gravity, force on different masses, static bodies, first-tick force
+lifetime, time from tick count, iteration order, reset reproducibility, detached snapshots, engine purity):
+
+```bash
+node --test tests/integrator.test.js
+```
+
 Full check (syntax-check the legacy demo script, then run the tests):
 
 ```bash
@@ -136,6 +143,10 @@ jsDelivr CDN.
     on load, so such a file can load slightly different from its JSON. Saved workspace files are exact.
 
 ## Known failures / open items
+
+- Engine tests: no failing cases (76/76 on Node 24.16.0, 2026-11-27). The integrator tests were mutation-checked:
+  not clearing one-tick forces, letting static bodies integrate, and swapping to explicit Euler each make the
+  matching tests in `tests/integrator.test.js` fail.
 
 - **Stale server:** the `app.py` process that was already on port 5050 (started 18:12, before the deletion) still
   serves the cached *old* `lab.html`, which has no readout table, so `/lab` there logs "Cannot read properties of
