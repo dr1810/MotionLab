@@ -10,6 +10,7 @@ and prototype tests: Claude. Spec: [CONTRACT.md](CONTRACT.md).
   being rebuilt from scratch to the current spec. The old version is still in `a43a3f3` (`git show a43a3f3:<path>`)
   and was not restored.
 - Entry point: `app.py` (Flask 3.1.3, Python 3.9.6 in `.venv/`), serving on `http://127.0.0.1:5050`.
+  Routes at baseline (since changed, see "Routes" below):
   Routes: `/` (projectile demo: `templates/index.html` + classic script `static/js/simulation.js`), `/lab`
   (block lab, renders `templates/lab.html`, pins `BLOCKLY_VERSION = "12.3.1"`), and `/fixtures/<name>.json`.
 - Package managers: pip for Python (`requirements.txt`: `Flask>=3.0,<4`). npm only as a script runner
@@ -35,8 +36,20 @@ and prototype tests: Claude. Spec: [CONTRACT.md](CONTRACT.md).
 ## Current state
 
 The whole prototype is in place: contract, validation, interpreter + engine (`createSimulation`), Blockly-JSON
-compiler, view transform, canonical fixture, and the block lab frontend at `/lab` (blocks, renderer, playback,
-files, autosave).
+compiler, view transform, canonical fixture, and the block lab frontend (blocks, renderer, playback, files,
+autosave).
+
+### Routes
+
+| Route | Page |
+|---|---|
+| `/` | block lab (`templates/lab.html`): the main page |
+| `/mini` | projectile mini demo (`templates/mini.html`, formerly `templates/index.html` at `/`) |
+| `/lab` | 301 redirect to `/` (old address of the block lab) |
+| `/fixtures/<name>.json` | fixture files (Example loads `ball-and-box.workspace.json`) |
+
+The block lab links to `/mini` ("Projectile mini"), and the mini demo links back to `/` ("Try the block lab").
+Templates use `url_for('lab')` and `url_for('mini')`.
 
 | Path | Purpose |
 |---|---|
@@ -55,7 +68,7 @@ files, autosave).
 | `tests/{contract,engine,integrator,compile,view,frontend}.test.js`, `tests/helpers.js` | 76 tests |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
-## The block lab (`/lab`)
+## The block lab (`/`)
 
 - Blockly **12.3.1** from `https://cdn.jsdelivr.net/npm/blockly@12.3.1/blockly.min.js` (global `Blockly`, English
   messages included; media from the same version's `/media/`). Version pinned by `BLOCKLY_VERSION` in `app.py`.
@@ -88,7 +101,7 @@ python3 -m venv .venv
 
 Node ≥ 20 is required for tests. There is nothing to `npm install`.
 
-Run, then open http://127.0.0.1:5050/lab (block lab) or http://127.0.0.1:5050/ (projectile demo). Restart it
+Run, then open http://127.0.0.1:5050/ (block lab) or http://127.0.0.1:5050/mini (projectile mini). Restart it
 after changing templates: with debug off, Flask caches templates.
 
 ```bash
@@ -149,8 +162,9 @@ jsDelivr CDN.
   matching tests in `tests/integrator.test.js` fail.
 
 - **Stale server:** the `app.py` process that was already on port 5050 (started 18:12, before the deletion) still
-  serves the cached *old* `lab.html`, which has no readout table, so `/lab` there logs "Cannot read properties of
-  null (reading 'replaceChildren')". Restart that server. Verified on a fresh server (`flask --app app run --port 5051`).
+  serves the cached *old* `lab.html`, which has no readout table, so the block lab there logs "Cannot read properties of
+  null (reading 'replaceChildren')". It also still has the old routes (block lab at `/lab`, projectile demo at
+  `/`, no `/mini`). Restart that server. Verified on a fresh server (`flask --app app run --port 5051`).
 - Browser checks done (Blockly 12.3.1, Chrome-based pane): example loads with no console errors; Step matches the
   fixture's tick 1; Run gives 120 ticks per 1.007 s of wall time and shows the ball bouncing off the box; Reset;
   error marking, disabled buttons, click-to-select; fix clears the error; body rename (`ball2`); single start block;

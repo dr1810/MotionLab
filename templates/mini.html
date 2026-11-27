@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h1>MotionLab ↗</h1><p>A tiny experiment. A little trial and error. <a href="/lab">Try the block lab →</a></p>
+<h1>MotionLab ↗</h1><p>A tiny experiment. A little trial and error. <a href="{{ url_for('lab') }}">Try the block lab →</a></p>
 <div class="workspace"><form id="controls"><strong>Launch settings</strong>
 <label>Angle <output id="angleValue">45°</output><input aria-label="Launch angle" id="angle" type="range" min="5" max="85" value="45"></label>
 <label>Speed <output id="speedValue">17 m/s</output><input aria-label="Launch speed" id="speed" type="range" min="5" max="25" value="17"></label>
