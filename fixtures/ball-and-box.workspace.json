@@ -1,0 +1,38 @@
+{
+  "blocks": {
+    "languageVersion": 0,
+    "blocks": [
+      {
+        "type": "motionlab_start",
+        "id": "blk-start",
+        "x": 20,
+        "y": 20,
+        "next": { "block": {
+          "type": "motionlab_set_gravity",
+          "id": "blk-gravity",
+          "fields": { "X": 0, "Y": -9.81 },
+          "next": { "block": {
+            "type": "motionlab_create_box",
+            "id": "blk-box",
+            "fields": { "ID": "box", "X": 2, "Y": 0.5, "WIDTH": 1, "HEIGHT": 1, "MASS": 2, "RESTITUTION": 0.2, "STATIC": false },
+            "next": { "block": {
+              "type": "motionlab_create_circle",
+              "id": "blk-ball",
+              "fields": { "ID": "ball", "X": 0, "Y": 3, "RADIUS": 0.25, "MASS": 1, "RESTITUTION": 0.6, "STATIC": false },
+              "next": { "block": {
+                "type": "motionlab_set_velocity",
+                "id": "blk-velocity",
+                "fields": { "ID": "ball", "VX": 1.5, "VY": 0 },
+                "next": { "block": {
+                  "type": "motionlab_apply_force",
+                  "id": "blk-force",
+                  "fields": { "ID": "ball", "FX": 120, "FY": 0 }
+                } }
+              } }
+            } }
+          } }
+        } }
+      }
+    ]
+  }
+}

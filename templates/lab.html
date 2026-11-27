@@ -24,17 +24,22 @@
 </header>
 
 <div class="lab-grid">
-    <div id="blocklyDiv" class="blockly-host" aria-label="Block editor" data-blockly-version="{{ blockly_version }}"></div>
-    <section class="stage">
+    <div id="blocklyDiv" class="blockly-host" aria-label="Block editor"
+         data-blockly-version="{{ blockly_version }}"></div>
+    <section class="stage" aria-label="Simulation">
         <canvas id="stage" aria-label="Physics simulation"></canvas>
         <div class="controls" role="group" aria-label="Playback">
             <button type="button" id="run">▶ Run</button>
-            <button type="button" class="secondary" id="step">Step</button>
+            <button type="button" class="secondary" id="step" title="Advance one 1/120 s tick">Step</button>
             <button type="button" class="secondary" id="reset">↺ Reset</button>
             <span id="clock" class="clock">tick 0 · 0.000 s</span>
         </div>
         <div id="status" class="status" role="status">Loading…</div>
         <ul id="errors" class="errors" aria-label="Problems"></ul>
+        <table class="readout" aria-label="Bodies">
+            <thead><tr><th>body</th><th>x</th><th>y</th><th>vx</th><th>vy</th></tr></thead>
+            <tbody id="bodies"></tbody>
+        </table>
     </section>
 </div>
 {% endblock %}

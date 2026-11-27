@@ -1,107 +1,116 @@
-// Workspace -> program v1 compiler.
-// Input is the plain JSON produced by Blockly.serialization.workspaces.save(workspace)
-// (or just its `blocks` member). No Blockly runtime types are used or required.
-// Only the stack connected below the single start block is serialized; every other
-// top-level stack is ignored. The start block itself emits no command.
+// Compiles a Blockly workspace serialization (plain JSON from Blockly.serialization.workspaces.save)
+// into program v1. Knows Blockly's JSON shape but imports nothing from Blockly or the DOM.
+// Only the stack connected under the single start block is compiled; the start block itself emits no command.
 
-import { ERROR_CODES, OPS, PROGRAM_VERSION, validateProgram } from './contract.js';
+import { ERROR_CODES, PROGRAM_VERSION, makeError, validateProgram } from './contract.js';
 
 export const START_BLOCK_TYPE = 'motionlab_start';
 
-/** Blockly block type -> program op. Field names are the payload names upper-cased. */
+/** Blockly block type -> { op, fields: { BLOCKLY_FIELD_NAME: commandKey } }. blocks.js builds blocks from this. */
 export const BLOCK_TYPES = Object.freeze({
-  motionlab_create_circle: 'createCircle',
-  motionlab_create_box: 'createBox',
-  motionlab_set_gravity: 'setGravity',
-  motionlab_set_velocity: 'setVelocity',
-  motionlab_apply_force: 'applyForce',
+  motionlab_create_circle: { op: 'createCircle', fields: { ID: 'id', X: 'x', Y: 'y', RADIUS: 'radius', MASS: 'mass', RESTITUTION: 'restitution', STATIC: 'static' } },
+  motionlab_create_box: { op: 'createBox', fields: { ID: 'id', X: 'x', Y: 'y', WIDTH: 'width', HEIGHT: 'height', MASS: 'mass', RESTITUTION: 'restitution', STATIC: 'static' } },
+  motionlab_set_gravity: { op: 'setGravity', fields: { X: 'x', Y: 'y' } },
+  motionlab_set_velocity: { op: 'setVelocity', fields: { ID: 'id', VX: 'vx', VY: 'vy' } },
+  motionlab_apply_force: { op: 'applyForce', fields: { ID: 'id', FX: 'fx', FY: 'fy' } },
 });
 
-const err = (code, message, blockId = null) => ({ code, message, blockId });
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/**
- * Returns { ok, program, errors }.
- * - Structural errors (no/multiple start blocks, unknown block types): program is null.
- * - Otherwise program is the compiled v1 document and errors come from validateProgram().
- */
-export function compileWorkspace(workspaceJson) {
-  const root = workspaceJson && typeof workspaceJson === 'object' && 'blocks' in workspaceJson
-    && !Array.isArray(workspaceJson.blocks) ? workspaceJson.blocks : workspaceJson;
-  const topBlocks = root && typeof root === 'object' ? (root.blocks ?? []) : null;
-  if (!Array.isArray(topBlocks)) {
-    return { ok: false, program: null, errors: [err(ERROR_CODES.INVALID_DOCUMENT, 'Workspace JSON has no blocks array.')] };
-  }
-
-  const starts = topBlocks.filter((b) => b && b.type === START_BLOCK_TYPE);
-  if (starts.length === 0) {
-    return { ok: false, program: null, errors: [err(ERROR_CODES.NO_START_BLOCK, 'Add a start block and attach blocks below it.')] };
-  }
-  if (starts.length > 1) {
-    return {
-      ok: false,
-      program: null,
-      errors: starts.slice(1).map((b) => err(ERROR_CODES.MULTIPLE_START_BLOCKS,
-        'Only one start block is allowed; remove this one.', b.id ?? null)),
-    };
-  }
-
-  const commands = [];
-  const errors = [];
-  let block = starts[0].next?.block;
-  // Cap the walk so a pathological chain cannot run unbounded; validateProgram reports the limit.
-  while (block && commands.length + errors.length <= 10000) {
-    if (!isDisabled(block)) {
-      const op = Object.prototype.hasOwnProperty.call(BLOCK_TYPES, block.type) ? BLOCK_TYPES[block.type] : null;
-      if (!op) {
-        errors.push(err(ERROR_CODES.UNKNOWN_BLOCK_TYPE, `Unknown block type ${JSON.stringify(block.type)}.`, block.id ?? null));
-      } else {
-        const fields = block.fields ?? {};
-        const cmd = { op, blockId: block.id };
-        for (const [name, kind] of OPS[op]) {
-          const key = name.toUpperCase();
-          if (!(key in fields)) continue; // validateProgram reports MISSING_FIELD
-          cmd[name] = kind === 'boolean' ? toBoolean(fields[key]) : fields[key];
-        }
-        commands.push(cmd);
-      }
-    }
-    block = block.next?.block;
-  }
-  if (errors.length) return { ok: false, program: null, errors };
-
-  const program = { version: PROGRAM_VERSION, commands };
-  const result = validateProgram(program);
-  return { ok: result.ok, program, errors: result.errors };
-}
-
-/**
- * Inverse of compileWorkspace for a valid program: returns Blockly serialization JSON with a
- * start block at (20, 20) and one block per command, in order, keeping each blockId.
- * Used to load plain program files and to build the default workspace.
- */
-export function programToWorkspace(program) {
-  const typeForOp = Object.fromEntries(Object.entries(BLOCK_TYPES).map(([type, op]) => [op, type]));
-  let next;
-  for (let i = program.commands.length - 1; i >= 0; i--) {
-    const cmd = program.commands[i];
-    const fields = {};
-    for (const [name] of OPS[cmd.op]) fields[name.toUpperCase()] = cmd[name];
-    next = { type: typeForOp[cmd.op], id: cmd.blockId, fields, ...(next ? { next: { block: next } } : {}) };
-  }
-  const used = new Set(program.commands.map((c) => c.blockId));
-  let startId = 'start';
-  for (let n = 1; used.has(startId); n++) startId = `start-${n}`;
-  const start = { type: START_BLOCK_TYPE, id: startId, x: 20, y: 20, ...(next ? { next: { block: next } } : {}) };
-  return { blocks: { languageVersion: 0, blocks: [start] } };
-}
-
+/** Blockly <= 10 writes enabled:false; Blockly >= 11 writes a non-empty disabledReasons array. */
 function isDisabled(block) {
   return block.enabled === false || (Array.isArray(block.disabledReasons) && block.disabledReasons.length > 0);
 }
 
-// Blockly checkbox fields serialize as booleans (current) or "TRUE"/"FALSE" (legacy).
-function toBoolean(v) {
-  if (v === 'TRUE') return true;
-  if (v === 'FALSE') return false;
-  return v;
+/** Checkbox fields serialize as booleans (or "TRUE"/"FALSE" in older saves). Anything else passes through for validation. */
+function fieldValue(key, raw) {
+  if (key === 'static' && (raw === 'TRUE' || raw === 'FALSE')) return raw === 'TRUE';
+  return raw;
+}
+
+/**
+ * @param {object} workspace  Blockly JSON serialization ({} for an empty workspace)
+ * @returns {{ok: boolean, program: object|null, errors: Array<{code, message, blockId}>}}
+ *   program is null only when there is no single start block or the input is not a workspace.
+ *   Otherwise program is returned even when invalid, so its errors can be shown next to blocks.
+ */
+export function compileWorkspace(workspace) {
+  const E = ERROR_CODES;
+  if (!isPlainObject(workspace)) {
+    return { ok: false, program: null, errors: [makeError(E.INVALID_WORKSPACE, 'Workspace must be a JSON object.')] };
+  }
+  const top = workspace.blocks === undefined ? [] : workspace.blocks?.blocks;
+  if (!Array.isArray(top)) {
+    return { ok: false, program: null, errors: [makeError(E.INVALID_WORKSPACE, 'Workspace "blocks.blocks" must be an array.')] };
+  }
+
+  const starts = top.filter((b) => isPlainObject(b) && b.type === START_BLOCK_TYPE);
+  if (starts.length === 0) {
+    return { ok: false, program: null, errors: [makeError(E.NO_START_BLOCK, 'Add a "when experiment starts" block.')] };
+  }
+  if (starts.length > 1) {
+    const errors = starts.map((b) => makeError(E.MULTIPLE_START_BLOCKS, 'Only one "when experiment starts" block is allowed.', b.id));
+    return { ok: false, program: null, errors };
+  }
+
+  const errors = [];
+  const commands = [];
+  let block = starts[0].next?.block;
+  while (isPlainObject(block)) {
+    if (!isDisabled(block)) {
+      const spec = Object.prototype.hasOwnProperty.call(BLOCK_TYPES, block.type) ? BLOCK_TYPES[block.type] : null;
+      if (!spec) {
+        errors.push(makeError(E.UNKNOWN_BLOCK_TYPE, `Block type "${block.type}" cannot run in an experiment.`, block.id));
+      } else {
+        const command = { op: spec.op, blockId: block.id };
+        const fields = isPlainObject(block.fields) ? block.fields : {};
+        for (const [name, key] of Object.entries(spec.fields)) {
+          if (Object.prototype.hasOwnProperty.call(fields, name)) command[key] = fieldValue(key, fields[name]);
+        }
+        commands.push(command);
+      }
+    }
+    block = block.next?.block;
+  }
+
+  const program = { version: PROGRAM_VERSION, commands };
+  errors.push(...validateProgram(program).errors);
+  return { ok: errors.length === 0, program, errors };
+}
+
+const OP_TO_TYPE = Object.freeze(Object.fromEntries(Object.entries(BLOCK_TYPES).map(([type, t]) => [t.op, type])));
+
+/**
+ * Inverse of compileWorkspace: program v1 -> Blockly workspace JSON (one start block with the commands
+ * stacked under it). Block ids reuse each command's blockId when it is a unique non-empty string.
+ * Field values are copied as-is; Blockly's number fields may clamp out-of-range values on load.
+ * @throws {Error} if the program has no commands array or contains an op that has no block
+ */
+export function programToWorkspace(program) {
+  if (!isPlainObject(program) || !Array.isArray(program.commands)) throw new Error('program has no "commands" array');
+  const used = new Set();
+  const freshId = (wanted, fallback) => {
+    let id = typeof wanted === 'string' && wanted.length > 0 && wanted.length <= 64 && !used.has(wanted) ? wanted : null;
+    for (let n = 1; id === null; n++) if (!used.has(`${fallback}-${n}`)) id = `${fallback}-${n}`;
+    used.add(id);
+    return id;
+  };
+  const blockIds = new Set(program.commands.map((c) => (isPlainObject(c) ? c.blockId : undefined)));
+  const startId = blockIds.has('start') ? freshId(null, 'start') : freshId('start', 'start');
+
+  const blocks = program.commands.map((cmd, i) => {
+    const type = isPlainObject(cmd) ? OP_TO_TYPE[cmd.op] : undefined;
+    if (!type || !Object.prototype.hasOwnProperty.call(OP_TO_TYPE, cmd.op)) {
+      throw new Error(`command ${i + 1} has unknown op ${JSON.stringify(isPlainObject(cmd) ? cmd.op : cmd)}`);
+    }
+    const fields = {};
+    for (const [name, key] of Object.entries(BLOCK_TYPES[type].fields)) {
+      if (cmd[key] !== undefined) fields[name] = cmd[key];
+    }
+    return { type, id: freshId(cmd.blockId, 'blk'), fields };
+  });
+  for (let i = blocks.length - 1; i > 0; i--) blocks[i - 1].next = { block: blocks[i] };
+  const start = { type: START_BLOCK_TYPE, id: startId, x: 20, y: 20 };
+  if (blocks.length) start.next = { block: blocks[0] };
+  return { blocks: { languageVersion: 0, blocks: [start] } };
 }

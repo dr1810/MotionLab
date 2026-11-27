@@ -1,133 +1,86 @@
-// Blockly block definitions and toolbox for MotionLab, as plain JSON derived from the contract.
-// Blockly itself is passed in to registerBlocks(); this module never imports it, so the
-// definitions are testable in Node and the contract stays Blockly-free.
+// Blockly block definitions and toolbox for MotionLab, generated from the contract so that
+// number fields enforce the same ranges as validateProgram. Plain JSON: defineBlocks(Blockly) registers them.
 
-import { OPS } from './contract.js';
-import { START_BLOCK_TYPE, BLOCK_TYPES } from './compile.js';
+import { LIMITS, OPS } from './contract.js';
+import { BLOCK_TYPES, START_BLOCK_TYPE } from './compile.js';
 
-export const BLOCK_COLOURS = Object.freeze({ start: 45, body: 260, world: 200, motion: 330 });
+export const BODY_BLOCK_TYPES = Object.freeze(['motionlab_create_circle', 'motionlab_create_box']);
 
-const OP_TO_TYPE = Object.fromEntries(Object.entries(BLOCK_TYPES).map(([type, op]) => [op, type]));
-
-const LABELS = {
-  createCircle: { title: 'create ball', colour: BLOCK_COLOURS.body },
-  createBox: { title: 'create box', colour: BLOCK_COLOURS.body },
-  setGravity: { title: 'set gravity', colour: BLOCK_COLOURS.world },
-  setVelocity: { title: 'set velocity of', colour: BLOCK_COLOURS.motion },
-  applyForce: { title: 'push', colour: BLOCK_COLOURS.motion },
-};
-
-const FIELD_LABELS = {
-  x: 'x', y: 'y', radius: 'radius', width: 'width', height: 'height', mass: 'mass',
-  restitution: 'bounciness', static: 'fixed in place', vx: 'vx', vy: 'vy', fx: 'fx', fy: 'fy',
-};
-
-const UNITS = {
-  x: 'm', y: 'm', radius: 'm', width: 'm', height: 'm', mass: 'kg', vx: 'm/s', vy: 'm/s', fx: 'N', fy: 'N',
-};
-
-const PRECISION = { restitution: 0.01 };
-
-/** Default field values used by the toolbox. */
-export const FIELD_DEFAULTS = Object.freeze({
-  createCircle: { ID: 'ball', X: 0, Y: 2, RADIUS: 0.25, MASS: 1, RESTITUTION: 0.6, STATIC: false },
-  createBox: { ID: 'box', X: 2, Y: 0.5, WIDTH: 1, HEIGHT: 1, MASS: 2, RESTITUTION: 0.2, STATIC: false },
-  setGravity: { X: 0, Y: -9.81 },
-  setVelocity: { ID: 'ball', VX: 1, VY: 0 },
-  applyForce: { ID: 'ball', FX: 100, FY: 0 },
+/** Default field values for a freshly dragged block (also used by the toolbox). */
+export const DEFAULTS = Object.freeze({
+  motionlab_create_circle: { ID: 'ball', X: 0, Y: 2, RADIUS: 0.25, MASS: 1, RESTITUTION: 0.6, STATIC: false },
+  motionlab_create_box: { ID: 'box', X: 2, Y: 0.5, WIDTH: 1, HEIGHT: 1, MASS: 2, RESTITUTION: 0.2, STATIC: false },
+  motionlab_set_gravity: { X: 0, Y: -9.81 },
+  motionlab_set_velocity: { ID: 'ball', VX: 2, VY: 0 },
+  motionlab_apply_force: { ID: 'ball', FX: 100, FY: 0 },
 });
 
-// Fields shown on each row of a block; the first row also carries the title.
-const ROWS = {
-  createCircle: [['id'], ['x', 'y'], ['radius', 'mass'], ['restitution', 'static']],
-  createBox: [['id'], ['x', 'y'], ['width', 'height'], ['mass'], ['restitution', 'static']],
-  setGravity: [['x', 'y']],
-  setVelocity: [['id', 'vx', 'vy']],
-  applyForce: [['id', 'fx', 'fy']],
+const COLOURS = { start: 45, bodies: 200, world: 270, motion: 15 };
+
+/** Rows of [message, ...field names] per block type; %n placeholders are filled in order. */
+const LAYOUT = {
+  motionlab_create_circle: { colour: COLOURS.bodies, tooltip: 'Add a circle. Position is its center, in meters (+y up, floor at y = 0).', rows: [['create circle %1', 'ID'], ['x %1 y %2 m', 'X', 'Y'], ['radius %1 m  mass %2 kg', 'RADIUS', 'MASS'], ['bounce %1  static %2', 'RESTITUTION', 'STATIC']] },
+  motionlab_create_box: { colour: COLOURS.bodies, tooltip: 'Add a box. Position is its center, in meters (+y up, floor at y = 0).', rows: [['create box %1', 'ID'], ['x %1 y %2 m', 'X', 'Y'], ['width %1 height %2 m', 'WIDTH', 'HEIGHT'], ['mass %1 kg  bounce %2  static %3', 'MASS', 'RESTITUTION', 'STATIC']] },
+  motionlab_set_gravity: { colour: COLOURS.world, tooltip: 'Set gravity in m/s² (default 0, -9.81). The last one wins.', rows: [['set gravity x %1 y %2 m/s²', 'X', 'Y']] },
+  motionlab_set_velocity: { colour: COLOURS.motion, tooltip: 'Set the starting velocity of a body created above this block.', rows: [['set velocity of %1', 'ID'], ['vx %1 vy %2 m/s', 'VX', 'VY']] },
+  motionlab_apply_force: { colour: COLOURS.motion, tooltip: 'Push a body created above this block. The force acts for the first 1/120 s only; forces add up.', rows: [['apply force to %1', 'ID'], ['fx %1 fy %2 N', 'FX', 'FY']] },
 };
 
-function fieldArg(op, name, kind, range) {
-  const key = name.toUpperCase();
-  const value = FIELD_DEFAULTS[op][key];
-  if (kind === 'id') return { text: '%1', arg: { type: 'field_input', name: key, text: value, spellcheck: false } };
-  if (kind === 'boolean') return { text: `${FIELD_LABELS[name]} %1`, arg: { type: 'field_checkbox', name: key, checked: value } };
-  const unit = UNITS[name] ? ` ${UNITS[name]}` : '';
-  return {
-    text: `${FIELD_LABELS[name]} %1${unit}`,
-    arg: {
-      type: 'field_number', name: key, value, min: range.min, max: range.max,
-      ...(PRECISION[name] ? { precision: PRECISION[name] } : {}),
-    },
-  };
+function fieldArg(type, name) {
+  const { op, fields } = BLOCK_TYPES[type];
+  const kind = OPS[op][fields[name]];
+  const value = DEFAULTS[type][name];
+  if (kind === 'boolean') return { type: 'field_checkbox', name, checked: value };
+  if (kind === 'bodyId' || kind === 'bodyRef') return { type: 'field_input', name, text: value, spellcheck: false };
+  const [min, max] = LIMITS[kind];
+  return { type: 'field_number', name, value, min, max };
 }
 
-function blockDefinition(op) {
-  const specs = Object.fromEntries(OPS[op].map((f) => [f[0], f]));
-  const def = { type: OP_TO_TYPE[op] };
-  ROWS[op].forEach((row, i) => {
-    const parts = i === 0 ? [LABELS[op].title] : [];
-    const args = [];
-    for (const name of row) {
-      const [, kind, range] = specs[name];
-      const { text, arg } = fieldArg(op, name, kind, range);
-      parts.push(text.replace('%1', `%${args.length + 1}`));
-      args.push(arg);
-    }
-    def[`message${i}`] = parts.join(' ');
-    def[`args${i}`] = args;
-  });
-  return {
-    ...def,
-    previousStatement: null,
-    nextStatement: null,
-    colour: LABELS[op].colour,
-    tooltip: tooltipFor(op),
-    inputsInline: false,
-  };
-}
-
-function tooltipFor(op) {
-  switch (op) {
-    case 'createCircle': return 'Add a ball. Fixed-in-place bodies never move.';
-    case 'createBox': return 'Add a box (it does not rotate). Fixed-in-place bodies never move.';
-    case 'setGravity': return 'Set gravity for the whole scene (default 0, -9.81 m/s²). The last one wins.';
-    case 'setVelocity': return 'Give a body created above this block a starting velocity.';
-    case 'applyForce': return 'Push a body created above this block during the first 1/120 s only.';
-    default: return '';
-  }
-}
-
+/** JSON block definitions for Blockly.defineBlocksWithJsonArray. */
 export const BLOCK_DEFINITIONS = Object.freeze([
   {
     type: START_BLOCK_TYPE,
     message0: 'when experiment starts',
     nextStatement: null,
-    colour: BLOCK_COLOURS.start,
-    tooltip: 'Only blocks attached below this one run. There can be only one.',
+    colour: COLOURS.start,
+    tooltip: 'Blocks snapped under this run once, top to bottom, to build the scene. Only one start block is allowed.',
   },
-  ...Object.keys(OPS).map(blockDefinition),
+  ...Object.entries(LAYOUT).map(([type, { colour, tooltip, rows }]) => {
+    const def = { type, previousStatement: null, nextStatement: null, colour, tooltip };
+    rows.forEach(([message, ...names], i) => {
+      def[`message${i}`] = message;
+      def[`args${i}`] = names.map((name) => fieldArg(type, name));
+    });
+    return def;
+  }),
 ]);
 
+/** Category toolbox. The start block is limited to one instance via inject({maxInstances}). */
 export const TOOLBOX = Object.freeze({
   kind: 'categoryToolbox',
   contents: [
-    { kind: 'category', name: 'Start', colour: String(BLOCK_COLOURS.start), contents: [{ kind: 'block', type: START_BLOCK_TYPE }] },
-    {
-      kind: 'category', name: 'Bodies', colour: String(BLOCK_COLOURS.body),
-      contents: ['createCircle', 'createBox'].map((op) => ({ kind: 'block', type: OP_TO_TYPE[op] })),
-    },
-    { kind: 'category', name: 'World', colour: String(BLOCK_COLOURS.world), contents: [{ kind: 'block', type: OP_TO_TYPE.setGravity }] },
-    {
-      kind: 'category', name: 'Motion', colour: String(BLOCK_COLOURS.motion),
-      contents: ['setVelocity', 'applyForce'].map((op) => ({ kind: 'block', type: OP_TO_TYPE[op] })),
-    },
+    { kind: 'category', name: 'Start', colour: String(COLOURS.start), contents: [{ kind: 'block', type: START_BLOCK_TYPE }] },
+    { kind: 'category', name: 'Bodies', colour: String(COLOURS.bodies), contents: BODY_BLOCK_TYPES.map((type) => ({ kind: 'block', type })) },
+    { kind: 'category', name: 'World', colour: String(COLOURS.world), contents: [{ kind: 'block', type: 'motionlab_set_gravity' }] },
+    { kind: 'category', name: 'Motion', colour: String(COLOURS.motion), contents: [{ kind: 'block', type: 'motionlab_set_velocity' }, { kind: 'block', type: 'motionlab_apply_force' }] },
   ],
 });
 
-let registered = false;
-/** Register MotionLab blocks with a Blockly instance (idempotent). */
-export function registerBlocks(Blockly) {
-  if (registered) return;
-  Blockly.common.defineBlocksWithJsonArray(BLOCK_DEFINITIONS);
-  registered = true;
+export const MAX_INSTANCES = Object.freeze({ [START_BLOCK_TYPE]: 1 });
+
+/** Register the blocks with a Blockly instance (the global from the CDN build). */
+export function defineBlocks(Blockly) {
+  Blockly.defineBlocksWithJsonArray(BLOCK_DEFINITIONS);
+}
+
+/** First of base, base2, base3, ... not in `taken`. Used to rename a dragged-in body that clashes. */
+export function uniqueBodyId(taken, base) {
+  const set = new Set(taken);
+  if (!set.has(base)) return base;
+  const stem = String(base).replace(/\d+$/, '') || 'body';
+  for (let n = 2; ; n++) {
+    const suffix = String(n);
+    const candidate = stem.slice(0, 32 - suffix.length) + suffix; // stay within the 32-char id limit
+    if (!set.has(candidate)) return candidate;
+  }
 }

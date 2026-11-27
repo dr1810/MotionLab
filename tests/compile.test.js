@@ -1,77 +1,90 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileWorkspace, createSimulation, ERROR_CODES as E } from '../static/js/motionlab/index.js';
-import { loadJson } from './helpers.js';
+import { compileWorkspace, BLOCK_TYPES, START_BLOCK_TYPE } from '../static/js/motionlab/compile.js';
+import { OPS, ERROR_CODES as E } from '../static/js/motionlab/contract.js';
+import { createSimulation } from '../static/js/motionlab/engine.js';
+import { program, workspace, expected } from './helpers.js';
 
-const fixture = loadJson('fixtures/ball-and-box.program.json');
-
-// Build a Blockly-style serialized stack: { type, id, fields, next: { block } }.
-function chain(blocks) {
-  let next;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    next = { ...blocks[i], ...(next ? { next: { block: next } } : {}) };
-  }
-  return next;
-}
-const start = (id, below = []) => chain([{ type: 'motionlab_start', id, x: 10, y: 10 }, ...below]);
 const ws = (...top) => ({ blocks: { languageVersion: 0, blocks: top } });
+const chain = (...blocks) => {
+  for (let i = blocks.length - 1; i > 0; i--) blocks[i - 1].next = { block: blocks[i] };
+  return blocks[0];
+};
+const start = (id = 'start') => ({ type: START_BLOCK_TYPE, id });
+const gravity = (id, fields = { X: 0, Y: -1 }) => ({ type: 'motionlab_set_gravity', id, fields });
+const pairs = (r) => r.errors.map((e) => [e.code, e.blockId]);
 
-const fixtureBlocks = [
-  { type: 'motionlab_set_gravity', id: 'blk-gravity', fields: { X: 0, Y: -9.81 } },
-  { type: 'motionlab_create_box', id: 'blk-box', fields: { ID: 'box', X: 2, Y: 0.5, WIDTH: 1, HEIGHT: 1, MASS: 2, RESTITUTION: 0.2, STATIC: false } },
-  { type: 'motionlab_create_circle', id: 'blk-ball', fields: { ID: 'ball', X: 0, Y: 3, RADIUS: 0.25, MASS: 1, RESTITUTION: 0.6, STATIC: 'FALSE' } },
-  { type: 'motionlab_set_velocity', id: 'blk-velocity', fields: { ID: 'ball', VX: 1.5, VY: 0 } },
-  { type: 'motionlab_apply_force', id: 'blk-force', fields: { ID: 'ball', FX: 120, FY: 0 } },
-];
-
-test('connected start stack compiles to the canonical fixture', () => {
-  const r = compileWorkspace(ws(start('s', fixtureBlocks)));
-  assert.equal(r.ok, true, JSON.stringify(r.errors));
-  assert.deepEqual(r.program, fixture);
-  createSimulation(r.program); // does not throw
+test('block types cover every op and every field', () => {
+  const ops = Object.values(BLOCK_TYPES).map((t) => t.op).sort();
+  assert.deepEqual(ops, Object.keys(OPS).sort());
+  for (const t of Object.values(BLOCK_TYPES)) {
+    assert.deepEqual(Object.values(t.fields).sort(), Object.keys(OPS[t.op]).sort(), t.op);
+  }
 });
 
-test('accepts the inner {blocks: [...]} object too', () => {
-  const r = compileWorkspace({ languageVersion: 0, blocks: [start('s', fixtureBlocks)] });
-  assert.deepEqual(r.program, fixture);
+test('canonical workspace compiles to the canonical program and simulates', () => {
+  const r = compileWorkspace(workspace());
+  assert.deepEqual(r, { ok: true, program: program(), errors: [] });
+  assert.deepEqual(createSimulation(r.program).snapshot(), expected().initial);
 });
 
-test('stacks not attached to start are ignored; start alone is an empty program', () => {
-  const loose = chain([{ type: 'motionlab_set_gravity', id: 'loose', fields: { X: 0, Y: 0 } }]);
-  const r = compileWorkspace(ws(loose, start('s')));
-  assert.deepEqual(r, { ok: true, program: { version: 1, commands: [] }, errors: [] });
+test('empty start stack compiles to the valid empty program', () => {
+  assert.deepEqual(compileWorkspace(ws(start())), { ok: true, program: { version: 1, commands: [] }, errors: [] });
 });
 
-test('disabled blocks are skipped', () => {
-  const blocks = [
-    { type: 'motionlab_set_gravity', id: 'g1', enabled: false, fields: { X: 0, Y: 0 } },
-    { type: 'motionlab_set_gravity', id: 'g2', disabledReasons: ['MANUALLY_DISABLED'], fields: { X: 0, Y: 0 } },
-    { type: 'motionlab_set_gravity', id: 'g3', fields: { X: 1, Y: 0 } },
-  ];
-  const r = compileWorkspace(ws(start('s', blocks)));
-  assert.deepEqual(r.program.commands.map((c) => c.blockId), ['g3']);
+test('missing start block (including an empty workspace) is a document-level error', () => {
+  for (const w of [{}, ws(), ws(gravity('g'))]) {
+    const r = compileWorkspace(w);
+    assert.equal(r.program, null);
+    assert.deepEqual(pairs(r), [[E.NO_START_BLOCK, null]]);
+  }
 });
 
-test('no start block / multiple start blocks / empty workspace', () => {
-  assert.deepEqual(compileWorkspace(ws()).errors.map((e) => [e.code, e.blockId]), [[E.NO_START_BLOCK, null]]);
-  assert.deepEqual(compileWorkspace({}).errors.map((e) => [e.code, e.blockId]), [[E.NO_START_BLOCK, null]]);
-  const r = compileWorkspace(ws(start('s1'), start('s2'), start('s3')));
+test('more than one start block flags each start block', () => {
+  const r = compileWorkspace(ws(start('s1'), start('s2')));
   assert.equal(r.program, null);
-  assert.deepEqual(r.errors.map((e) => [e.code, e.blockId]), [[E.MULTIPLE_START_BLOCKS, 's2'], [E.MULTIPLE_START_BLOCKS, 's3']]);
-  assert.deepEqual(compileWorkspace(null).errors.map((e) => [e.code, e.blockId]), [[E.INVALID_DOCUMENT, null]]);
+  assert.deepEqual(pairs(r), [[E.MULTIPLE_START_BLOCKS, 's1'], [E.MULTIPLE_START_BLOCKS, 's2']]);
 });
 
-test('unknown block type in the stack is reported with its blockId', () => {
-  const r = compileWorkspace(ws(start('s', [{ type: 'mystery', id: 'm' }])));
-  assert.deepEqual(r.errors.map((e) => [e.code, e.blockId]), [[E.UNKNOWN_BLOCK_TYPE, 'm']]);
-  assert.equal(r.program, null);
+test('non-workspace input', () => {
+  for (const w of [null, 3, [], { blocks: 5 }, { blocks: { blocks: {} } }]) {
+    const r = compileWorkspace(w);
+    assert.equal(r.program, null);
+    assert.deepEqual(pairs(r), [[E.INVALID_WORKSPACE, null]]);
+  }
 });
 
-test('validation errors point at the offending block', () => {
-  const r = compileWorkspace(ws(start('s', [
-    { type: 'motionlab_set_velocity', id: 'v', fields: { ID: 'ghost', VX: 1, VY: 0 } },
-    { type: 'motionlab_create_circle', id: 'c', fields: { ID: 'ball', X: 0, Y: 1, RADIUS: 0.5, MASS: 1, RESTITUTION: 0.5 } },
-  ])));
+test('only the connected start stack is compiled; loose stacks are ignored', () => {
+  const r = compileWorkspace(ws(chain(start(), gravity('g1')), chain(gravity('loose1'), gravity('loose2'))));
+  assert.deepEqual(r.program.commands.map((c) => c.blockId), ['g1']);
+  assert.equal(r.ok, true);
+});
+
+test('disabled blocks are skipped (old and new Blockly formats)', () => {
+  const r = compileWorkspace(ws(chain(start(), { ...gravity('a'), enabled: false }, gravity('b'), { ...gravity('c'), disabledReasons: ['MANUALLY_DISABLED'] }, gravity('d'))));
+  assert.deepEqual(r.program.commands.map((c) => c.blockId), ['b', 'd']);
+});
+
+test('unknown block type in the stack is reported with its block id', () => {
+  const r = compileWorkspace(ws(chain(start(), { type: 'math_number', id: 'm' }, gravity('g'))));
+  assert.deepEqual(pairs(r), [[E.UNKNOWN_BLOCK_TYPE, 'm']]);
   assert.equal(r.ok, false);
-  assert.deepEqual(r.errors.map((e) => [e.code, e.blockId]), [[E.UNKNOWN_BODY, 'v'], [E.MISSING_FIELD, 'c']]);
+});
+
+test('validation errors point at the Blockly block', () => {
+  const r = compileWorkspace(ws(chain(start(),
+    { type: 'motionlab_create_circle', id: 'blk-c', fields: { ID: 'ball', X: 0, Y: 1, RADIUS: 0, MASS: 1, RESTITUTION: 0.5, STATIC: false } },
+    { type: 'motionlab_set_velocity', id: 'blk-v', fields: { ID: 'ghost', VX: 1, VY: 0 } },
+    { type: 'motionlab_set_gravity', id: 'blk-g', fields: { X: 0 } },
+  )));
+  assert.deepEqual(pairs(r), [[E.OUT_OF_RANGE, 'blk-c'], [E.UNKNOWN_BODY, 'blk-v'], [E.MISSING_FIELD, 'blk-g']]);
+  assert.equal(r.program.commands.length, 3, 'invalid program is still returned for display/export');
+});
+
+test('checkbox values: booleans and legacy TRUE/FALSE strings', () => {
+  const mk = (s) => compileWorkspace(ws(chain(start(), { type: 'motionlab_create_box', id: 'b', fields: { ID: 'box', X: 0, Y: 1, WIDTH: 1, HEIGHT: 1, MASS: 1, RESTITUTION: 0, STATIC: s } })));
+  assert.equal(mk(true).program.commands[0].static, true);
+  assert.equal(mk('TRUE').program.commands[0].static, true);
+  assert.equal(mk('FALSE').program.commands[0].static, false);
+  assert.deepEqual(pairs(mk('yes')), [[E.INVALID_TYPE, 'b']]);
 });

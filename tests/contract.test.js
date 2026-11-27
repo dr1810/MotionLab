@@ -1,124 +1,132 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateProgram, ERROR_CODES as E, LIMITS, FLOOR_Y, createViewTransform } from '../static/js/motionlab/index.js';
-import { loadJson } from './helpers.js';
+import { validateProgram, LIMITS, ERROR_CODES as E, OPS, DT, FLOOR_Y, CONTRACT_VERSION, PROGRAM_VERSION } from '../static/js/motionlab/contract.js';
+import { program, prog, circle, box, codes } from './helpers.js';
 
-const fixture = loadJson('fixtures/ball-and-box.program.json');
-const codes = (r) => r.errors.map((e) => [e.code, e.blockId]);
-const circle = (blockId, id, extra = {}) => ({
-  op: 'createCircle', blockId, id, x: 0, y: 1, radius: 0.5, mass: 1, restitution: 0.5, static: false, ...extra,
+test('constants', () => {
+  assert.equal(CONTRACT_VERSION, 1);
+  assert.equal(PROGRAM_VERSION, 1);
+  assert.equal(DT, 1 / 120);
+  assert.equal(FLOOR_Y, 0);
+  assert.deepEqual(Object.keys(OPS), ['createCircle', 'createBox', 'setGravity', 'setVelocity', 'applyForce']);
 });
-const prog = (...commands) => ({ version: 1, commands });
 
 test('canonical fixture is valid', () => {
-  assert.deepEqual(validateProgram(fixture), { ok: true, errors: [] });
+  assert.deepEqual(validateProgram(program()), { ok: true, errors: [] });
 });
 
-test('empty command list is valid', () => {
+test('empty program is valid', () => {
   assert.deepEqual(validateProgram(prog()), { ok: true, errors: [] });
 });
 
-test('document-level errors have null blockId and stop validation', () => {
-  for (const bad of [null, undefined, 42, 'x', [], { version: 1 }, { version: 1, commands: {} }]) {
+test('document-level errors have null blockId', () => {
+  for (const bad of [null, undefined, 42, 'x', [], true]) {
     const r = validateProgram(bad);
     assert.equal(r.ok, false);
-    assert.equal(r.errors.length, 1);
-    assert.equal(r.errors[0].blockId, null);
+    assert.deepEqual(r.errors.map((e) => [e.code, e.blockId]), [[E.INVALID_DOCUMENT, null]]);
   }
-  assert.deepEqual(codes(validateProgram({ version: 1, commands: [], extra: 1 })), [[E.INVALID_DOCUMENT, null]]);
-  assert.deepEqual(codes(validateProgram({ version: '1', commands: [] })), [[E.UNSUPPORTED_VERSION, null]]);
-  assert.deepEqual(codes(validateProgram({ commands: [] })), [[E.UNSUPPORTED_VERSION, null]]);
+  assert.deepEqual(codes(validateProgram({ version: 2, commands: [] })), [E.UNSUPPORTED_VERSION]);
+  assert.deepEqual(codes(validateProgram({ commands: [] })), [E.UNSUPPORTED_VERSION]);
+  assert.deepEqual(codes(validateProgram({ version: 1 })), [E.INVALID_COMMANDS]);
+  assert.deepEqual(codes(validateProgram({ version: 1, commands: {} })), [E.INVALID_COMMANDS]);
+  assert.deepEqual(codes(validateProgram({ version: 1, commands: [], extra: 1 })), [E.INVALID_DOCUMENT]);
   const many = Array.from({ length: LIMITS.maxCommands + 1 }, (_, i) => ({ op: 'setGravity', blockId: `g${i}`, x: 0, y: 0 }));
-  assert.deepEqual(codes(validateProgram(prog(...many))), [[E.TOO_MANY_COMMANDS, null]]);
+  const r = validateProgram(prog(...many));
+  assert.deepEqual(r.errors.map((e) => [e.code, e.blockId]), [[E.TOO_MANY_COMMANDS, null]]);
   assert.equal(validateProgram(prog(...many.slice(1))).ok, true);
 });
 
-test('every error has exactly code, message and blockId', () => {
-  const r = validateProgram(prog(circle('a', 'b', { radius: -1 })));
+test('every error has exactly code, message, blockId', () => {
+  const r = validateProgram(prog(circle({ radius: -1 }), { op: 'nope', blockId: 'n' }, 7));
+  assert.ok(r.errors.length >= 3);
   for (const e of r.errors) {
-    assert.deepEqual(Object.keys(e).sort(), ['blockId', 'code', 'message']);
+    assert.deepEqual(Object.keys(e), ['code', 'message', 'blockId']);
     assert.equal(typeof e.message, 'string');
+    assert.ok(e.message.length > 0);
   }
 });
 
-test('command shape errors', () => {
-  assert.deepEqual(codes(validateProgram(prog(null))), [[E.INVALID_COMMAND, null]]);
-  assert.deepEqual(codes(validateProgram(prog({ op: 'setGravity', x: 0, y: 0 }))), [[E.INVALID_COMMAND, null]]);
-  assert.deepEqual(codes(validateProgram(prog({ op: 'explode', blockId: 'z' }))), [[E.UNKNOWN_OP, 'z']]);
-  assert.deepEqual(codes(validateProgram(prog({ op: 'toString', blockId: 'z' }))), [[E.UNKNOWN_OP, 'z']]);
-  assert.deepEqual(codes(validateProgram(prog({ op: 'setGravity', blockId: 'g', x: 0 }))), [[E.MISSING_FIELD, 'g']]);
-  assert.deepEqual(codes(validateProgram(prog({ op: 'setGravity', blockId: 'g', x: 0, y: 0, z: 1 }))), [[E.UNKNOWN_FIELD, 'g']]);
-  assert.deepEqual(codes(validateProgram(prog(circle('a', 'b'), circle('a', 'c')))), [[E.DUPLICATE_BLOCK_ID, 'a']]);
+test('command shape and blockId errors', () => {
+  assert.deepEqual(validateProgram(prog(7)).errors.map((e) => [e.code, e.blockId]), [[E.INVALID_COMMAND, null]]);
+  assert.deepEqual(validateProgram(prog(circle({ blockId: '' }))).errors.map((e) => [e.code, e.blockId]), [[E.INVALID_BLOCK_ID, null]]);
+  assert.deepEqual(codes(validateProgram(prog(circle({ blockId: 'x'.repeat(65) })))), [E.INVALID_BLOCK_ID]);
+  const dup = validateProgram(prog(circle({ blockId: 'same' }), box({ blockId: 'same', x: 3 })));
+  assert.deepEqual(dup.errors.map((e) => [e.code, e.blockId]), [[E.DUPLICATE_BLOCK_ID, 'same']]);
+  assert.deepEqual(validateProgram(prog({ op: 'explode', blockId: 'k' })).errors.map((e) => [e.code, e.blockId]), [[E.UNKNOWN_OP, 'k']]);
+  assert.deepEqual(codes(validateProgram(prog({ op: 'toString', blockId: 'k' }))), [E.UNKNOWN_OP]);
+  assert.deepEqual(codes(validateProgram(prog(circle({ color: 'red' })))), [E.UNKNOWN_FIELD]);
 });
 
-test('numeric type and range errors', () => {
-  for (const v of ['1', NaN, Infinity, null, true]) {
-    assert.deepEqual(codes(validateProgram(prog(circle('a', 'b', { x: v })))), [[E.INVALID_TYPE, 'a']], String(v));
-  }
-  assert.deepEqual(codes(validateProgram(prog(circle('a', 'b', { static: 'yes' })))), [[E.INVALID_TYPE, 'a']]);
+test('field errors carry the command blockId', () => {
+  const { radius, ...noRadius } = circle();
   const cases = [
-    { x: LIMITS.position + 1 }, { radius: 0 }, { radius: LIMITS.radius.max + 1 },
-    { mass: 0 }, { restitution: 1.01 }, { restitution: -0.1 },
+    [noRadius, E.MISSING_FIELD],
+    [circle({ radius: undefined }), E.MISSING_FIELD],
+    [circle({ x: '1' }), E.INVALID_NUMBER],
+    [circle({ x: NaN }), E.INVALID_NUMBER],
+    [circle({ x: Infinity }), E.INVALID_NUMBER],
+    [circle({ x: null }), E.INVALID_NUMBER],
+    [circle({ x: 1001 }), E.OUT_OF_RANGE],
+    [circle({ radius: 0 }), E.OUT_OF_RANGE],
+    [circle({ mass: 0 }), E.OUT_OF_RANGE],
+    [circle({ restitution: 1.1 }), E.OUT_OF_RANGE],
+    [circle({ static: 'true' }), E.INVALID_TYPE],
+    [circle({ id: 5 }), E.INVALID_TYPE],
+    [circle({ id: '9lives' }), E.INVALID_BODY_ID],
+    [circle({ id: 'a b' }), E.INVALID_BODY_ID],
+    [circle({ id: 'x'.repeat(33) }), E.INVALID_BODY_ID],
   ];
-  for (const c of cases) {
-    assert.deepEqual(codes(validateProgram(prog(circle('a', 'b', c)))), [[E.OUT_OF_RANGE, 'a']], JSON.stringify(c));
+  for (const [cmd, code] of cases) {
+    const r = validateProgram(prog(cmd));
+    assert.deepEqual(r.errors.map((e) => [e.code, e.blockId]), [[code, 'c']], JSON.stringify(cmd));
   }
-  assert.deepEqual(codes(validateProgram(prog({ op: 'setGravity', blockId: 'g', x: 0, y: -101 }))), [[E.OUT_OF_RANGE, 'g']]);
-  // Boundary values are allowed.
-  assert.equal(validateProgram(prog(circle('a', 'b', { x: -LIMITS.position, restitution: 1 }))).ok, true);
 });
 
-test('body id rules', () => {
-  for (const id of ['', '1ball', 'has space', 'x'.repeat(LIMITS.maxBodyIdLength + 1), 5]) {
-    assert.deepEqual(codes(validateProgram(prog(circle('a', id)))), [[E.INVALID_ID, 'a']], String(id));
-  }
-  assert.deepEqual(codes(validateProgram(prog(circle('a', 'b'), circle('c', 'b')))), [[E.DUPLICATE_BODY_ID, 'c']]);
+test('numeric limits are inclusive', () => {
+  const edge = prog(
+    circle({ x: -1000, y: 1000, radius: 0.01, mass: 0.001, restitution: 0 }),
+    box({ id: 'b2', x: 1000, y: 50, width: 100, height: 100, mass: 10000, restitution: 1 }),
+    { op: 'setGravity', blockId: 'g', x: -100, y: 100 },
+    { op: 'setVelocity', blockId: 'v', id: 'ball', vx: -1000, vy: 1000 },
+    { op: 'applyForce', blockId: 'f', id: 'ball', fx: -100000, fy: 100000 },
+  );
+  assert.deepEqual(validateProgram(edge).errors, []);
+  assert.deepEqual(codes(validateProgram(prog({ op: 'setGravity', blockId: 'g', x: 0, y: -100.5 }))), [E.OUT_OF_RANGE]);
+  assert.deepEqual(codes(validateProgram(prog(circle(), { op: 'applyForce', blockId: 'f', id: 'ball', fx: 1e6, fy: 0 }))), [E.OUT_OF_RANGE]);
 });
 
-test('references resolve in stack order; static targets rejected', () => {
-  const vel = { op: 'setVelocity', blockId: 'v', id: 'b', vx: 1, vy: 0 };
-  assert.deepEqual(codes(validateProgram(prog(vel, circle('a', 'b')))), [[E.UNKNOWN_BODY, 'v']]);
-  assert.equal(validateProgram(prog(circle('a', 'b'), vel)).ok, true);
-  const force = { op: 'applyForce', blockId: 'f', id: 'b', fx: 1, fy: 0 };
-  assert.deepEqual(codes(validateProgram(prog(circle('a', 'b', { static: true }), force))), [[E.STATIC_BODY_TARGET, 'f']]);
+test('cross-command rules follow stack order', () => {
+  const ref = (op, id, blockId = 'r') => (op === 'setVelocity' ? { op, blockId, id, vx: 1, vy: 0 } : { op, blockId, id, fx: 1, fy: 0 });
+  for (const op of ['setVelocity', 'applyForce']) {
+    assert.deepEqual(validateProgram(prog(ref(op, 'ball'))).errors.map((e) => [e.code, e.blockId]), [[E.UNKNOWN_BODY, 'r']]);
+    assert.deepEqual(codes(validateProgram(prog(ref(op, 'ball'), circle()))), [E.UNKNOWN_BODY], 'reference before create');
+    assert.deepEqual(codes(validateProgram(prog(circle({ static: true }), ref(op, 'ball')))), [E.STATIC_BODY]);
+    assert.equal(validateProgram(prog(circle(), ref(op, 'ball'))).ok, true);
+  }
+  assert.deepEqual(validateProgram(prog(circle(), box({ id: 'ball', x: 3 }))).errors.map((e) => [e.code, e.blockId]), [[E.DUPLICATE_BODY_ID, 'b']]);
 });
 
 test('body count limit', () => {
-  const bodies = Array.from({ length: LIMITS.maxBodies + 1 }, (_, i) => circle(`c${i}`, `b${i}`, { x: i }));
-  assert.deepEqual(codes(validateProgram(prog(...bodies))), [[E.TOO_MANY_BODIES, `c${LIMITS.maxBodies}`]]);
-  assert.equal(validateProgram(prog(...bodies.slice(1))).ok, true);
+  const bodies = Array.from({ length: LIMITS.maxBodies }, (_, i) => circle({ blockId: `c${i}`, id: `b${i}`, x: i * 2 }));
+  assert.equal(validateProgram(prog(...bodies)).ok, true);
+  const r = validateProgram(prog(...bodies, circle({ blockId: 'extra', id: 'extra', x: 99 })));
+  assert.deepEqual(r.errors.map((e) => [e.code, e.blockId]), [[E.TOO_MANY_BODIES, 'extra']]);
 });
 
-test('dynamic bodies may not start below the floor; static bodies may', () => {
-  assert.deepEqual(codes(validateProgram(prog(circle('a', 'b', { y: 0.4 })))), [[E.BODY_BELOW_FLOOR, 'a']]);
-  assert.equal(validateProgram(prog(circle('a', 'b', { y: 0.5 }))).ok, true); // touching is fine
-  assert.equal(validateProgram(prog(circle('a', 'b', { y: -3, static: true }))).ok, true);
+test('bodies may not start below the floor', () => {
+  assert.deepEqual(codes(validateProgram(prog(circle({ y: 0.49 })))), [E.BELOW_FLOOR]);
+  assert.deepEqual(codes(validateProgram(prog(box({ y: 0.4, static: true })))), [E.BELOW_FLOOR]);
+  assert.equal(validateProgram(prog(circle({ y: 0.5 }), box({ x: 5, y: 0.5 }))).ok, true, 'touching the floor is fine');
 });
 
-test('errors are collected across commands in stack order', () => {
-  const r = validateProgram(prog(circle('a', 'b', { mass: -1 }), { op: 'nope', blockId: 'n' }, circle('c', 'd', { y: 0 })));
-  assert.deepEqual(codes(r), [[E.OUT_OF_RANGE, 'a'], [E.UNKNOWN_OP, 'n'], [E.BODY_BELOW_FLOOR, 'c']]);
+test('errors are collected, not first-only, in stable order', () => {
+  const r = validateProgram(prog(circle({ radius: 0, mass: -1 }), { op: 'nope', blockId: 'n' }));
+  assert.deepEqual(r.errors.map((e) => [e.code, e.blockId]), [[E.OUT_OF_RANGE, 'c'], [E.OUT_OF_RANGE, 'c'], [E.UNKNOWN_OP, 'n']]);
 });
 
-test('a create block with a bad value does not cascade UNKNOWN_BODY to blocks below', () => {
-  const r = validateProgram(prog(
-    circle('a', 'b', { radius: -1 }),
-    { op: 'setVelocity', blockId: 'v', id: 'b', vx: 1, vy: 0 },
-  ));
-  assert.deepEqual(codes(r), [[E.OUT_OF_RANGE, 'a']]);
-});
-
-test('validateProgram does not mutate input', () => {
-  const copy = structuredClone(fixture);
-  validateProgram(copy);
-  assert.deepEqual(copy, fixture);
-});
-
-test('view transform maps the floor and round-trips', () => {
-  const view = createViewTransform({ heightPx: 400, pixelsPerMeter: 50, originXPx: 20, floorMarginPx: 40 });
-  assert.equal(view.floorPx, 360);
-  assert.deepEqual(view.toCanvas(0, FLOOR_Y), { x: 20, y: 360 });
-  assert.deepEqual(view.toCanvas(2, 1), { x: 120, y: 310 }); // +y up in world = smaller canvas y
-  assert.deepEqual(view.toWorld(120, 310), { x: 2, y: 1 });
-  assert.equal(view.lengthToPx(0.25), 12.5);
+test('validation does not mutate the program', () => {
+  const p = program();
+  const before = JSON.stringify(p);
+  validateProgram(p);
+  assert.equal(JSON.stringify(p), before);
 });

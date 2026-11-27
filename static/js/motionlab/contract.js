@@ -1,246 +1,224 @@
 // MotionLab shared contract, version 1.
-// Pure data + validation. No Blockly, DOM or engine types live here.
-// See docs/CONTRACT.md for the human-readable specification.
+// Pure data + validation. No Blockly, DOM or engine imports, so it loads the same in Node and the browser.
+// Spec: docs/CONTRACT.md
 
 export const CONTRACT_VERSION = 1;
 export const PROGRAM_VERSION = 1;
 
 /** Fixed physics step in seconds. step() always advances exactly this much. */
 export const DT = 1 / 120;
-
-/** World y-coordinate of the static floor (meters). Renderers read this constant. */
+/** World y of the static floor (meters). The floor is not a body and never appears in snapshots. */
 export const FLOOR_Y = 0;
-
-/** Gravity used when a program contains no setGravity command (m/s^2). */
+/** Gravity used when no setGravity command runs (m/s², +y up). */
 export const DEFAULT_GRAVITY = Object.freeze({ x: 0, y: -9.81 });
 
 export const LIMITS = Object.freeze({
-  maxCommands: 200,
-  maxBodies: 50,
+  maxCommands: 256,
+  maxBodies: 32,
   maxBlockIdLength: 64,
-  maxBodyIdLength: 32,
-  position: 1000, // |x|, |y| <= 1000 m
-  radius: Object.freeze({ min: 0.01, max: 100 }), // m
-  size: Object.freeze({ min: 0.01, max: 200 }), // box width/height, m
-  mass: Object.freeze({ min: 0.001, max: 10000 }), // kg
-  restitution: Object.freeze({ min: 0, max: 1 }),
-  gravity: 100, // |gx|, |gy| <= 100 m/s^2
-  velocity: 500, // |vx|, |vy| <= 500 m/s
-  force: 1e6, // |fx|, |fy| <= 1e6 N
+  /** Body ids: letter or underscore first, then letters, digits, _ or -, 1..32 chars. */
+  bodyIdPattern: /^[A-Za-z_][A-Za-z0-9_-]{0,31}$/,
+  // Inclusive numeric ranges, by value kind.
+  position: Object.freeze([-1000, 1000]), // m
+  size: Object.freeze([0.01, 100]), // m (radius, width, height)
+  mass: Object.freeze([0.001, 10000]), // kg (required even for static bodies)
+  restitution: Object.freeze([0, 1]),
+  gravity: Object.freeze([-100, 100]), // m/s²
+  velocity: Object.freeze([-1000, 1000]), // m/s
+  force: Object.freeze([-100000, 100000]), // N
 });
 
-export const BODY_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
+/**
+ * Command payloads. Each command is { op, blockId, ...fields }.
+ * Value kinds: bodyId (new body), bodyRef (existing dynamic body), boolean, or a LIMITS range name.
+ */
+export const OPS = Object.freeze({
+  createCircle: Object.freeze({ id: 'bodyId', x: 'position', y: 'position', radius: 'size', mass: 'mass', restitution: 'restitution', static: 'boolean' }),
+  createBox: Object.freeze({ id: 'bodyId', x: 'position', y: 'position', width: 'size', height: 'size', mass: 'mass', restitution: 'restitution', static: 'boolean' }),
+  setGravity: Object.freeze({ x: 'gravity', y: 'gravity' }),
+  setVelocity: Object.freeze({ id: 'bodyRef', vx: 'velocity', vy: 'velocity' }),
+  applyForce: Object.freeze({ id: 'bodyRef', fx: 'force', fy: 'force' }),
+});
 
+/** Every error code the contract, compiler and engine can produce. */
 export const ERROR_CODES = Object.freeze({
+  // Document level (blockId is always null)
   INVALID_DOCUMENT: 'INVALID_DOCUMENT',
   UNSUPPORTED_VERSION: 'UNSUPPORTED_VERSION',
+  INVALID_COMMANDS: 'INVALID_COMMANDS',
   TOO_MANY_COMMANDS: 'TOO_MANY_COMMANDS',
+  // Command level (blockId of the command, or null if the command has no usable blockId)
   INVALID_COMMAND: 'INVALID_COMMAND',
+  INVALID_BLOCK_ID: 'INVALID_BLOCK_ID',
   DUPLICATE_BLOCK_ID: 'DUPLICATE_BLOCK_ID',
   UNKNOWN_OP: 'UNKNOWN_OP',
-  MISSING_FIELD: 'MISSING_FIELD',
   UNKNOWN_FIELD: 'UNKNOWN_FIELD',
+  MISSING_FIELD: 'MISSING_FIELD',
   INVALID_TYPE: 'INVALID_TYPE',
+  INVALID_NUMBER: 'INVALID_NUMBER',
   OUT_OF_RANGE: 'OUT_OF_RANGE',
-  INVALID_ID: 'INVALID_ID',
+  INVALID_BODY_ID: 'INVALID_BODY_ID',
   DUPLICATE_BODY_ID: 'DUPLICATE_BODY_ID',
-  TOO_MANY_BODIES: 'TOO_MANY_BODIES',
   UNKNOWN_BODY: 'UNKNOWN_BODY',
-  STATIC_BODY_TARGET: 'STATIC_BODY_TARGET',
-  BODY_BELOW_FLOOR: 'BODY_BELOW_FLOOR',
-  // Workspace compiler (compile.js) codes:
+  STATIC_BODY: 'STATIC_BODY',
+  TOO_MANY_BODIES: 'TOO_MANY_BODIES',
+  BELOW_FLOOR: 'BELOW_FLOOR',
+  // Workspace compiler (compile.js)
+  INVALID_WORKSPACE: 'INVALID_WORKSPACE',
   NO_START_BLOCK: 'NO_START_BLOCK',
   MULTIPLE_START_BLOCKS: 'MULTIPLE_START_BLOCKS',
   UNKNOWN_BLOCK_TYPE: 'UNKNOWN_BLOCK_TYPE',
+  // Thrown by createSimulation (ProgramError.code)
+  INVALID_PROGRAM: 'INVALID_PROGRAM',
 });
 
-const L = LIMITS;
-const sym = (m) => ({ min: -m, max: m });
+/** Build a contract error. blockId is null for document-level errors. */
+export function makeError(code, message, blockId = null) {
+  return { code, message, blockId: typeof blockId === 'string' ? blockId : null };
+}
 
-// Field specs per op, in payload order. kind: 'id' | 'number' | 'boolean'.
-export const OPS = Object.freeze({
-  createCircle: [
-    ['id', 'id'],
-    ['x', 'number', sym(L.position)],
-    ['y', 'number', sym(L.position)],
-    ['radius', 'number', L.radius],
-    ['mass', 'number', L.mass],
-    ['restitution', 'number', L.restitution],
-    ['static', 'boolean'],
-  ],
-  createBox: [
-    ['id', 'id'],
-    ['x', 'number', sym(L.position)],
-    ['y', 'number', sym(L.position)],
-    ['width', 'number', L.size],
-    ['height', 'number', L.size],
-    ['mass', 'number', L.mass],
-    ['restitution', 'number', L.restitution],
-    ['static', 'boolean'],
-  ],
-  setGravity: [
-    ['x', 'number', sym(L.gravity)],
-    ['y', 'number', sym(L.gravity)],
-  ],
-  setVelocity: [
-    ['id', 'id'],
-    ['vx', 'number', sym(L.velocity)],
-    ['vy', 'number', sym(L.velocity)],
-  ],
-  applyForce: [
-    ['id', 'id'],
-    ['fx', 'number', sym(L.force)],
-    ['fy', 'number', sym(L.force)],
-  ],
-});
-
-/** Error thrown by createSimulation() for an invalid program. */
+/** Thrown by createSimulation for an invalid program. `errors` is the validateProgram() list. */
 export class ProgramError extends Error {
   constructor(errors) {
-    super(errors.length ? `${errors[0].code}: ${errors[0].message}` : 'Invalid program');
+    const first = errors[0];
+    super(first ? `Invalid program: ${first.message}${errors.length > 1 ? ` (+${errors.length - 1} more)` : ''}` : 'Invalid program');
     this.name = 'ProgramError';
+    this.code = ERROR_CODES.INVALID_PROGRAM;
     this.errors = errors;
   }
 }
 
-const err = (code, message, blockId = null) => ({ code, message, blockId });
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+function validBlockId(v) {
+  return typeof v === 'string' && v.length > 0 && v.length <= LIMITS.maxBlockIdLength;
+}
 
 /**
- * Validate a program v1 document.
- * Returns { ok: true, errors: [] } or { ok: false, errors: [{code, message, blockId}] }.
- * Document-level errors (blockId null) stop validation; command errors are all collected,
- * in command order. Never throws, never mutates the input.
+ * Validate a program v1 document. Never throws.
+ * Errors are collected (not first-only) in a stable order: document errors, then commands in stack order,
+ * and fields in OPS order within a command.
+ * @returns {{ok: boolean, errors: Array<{code: string, message: string, blockId: string|null}>}}
  */
 export function validateProgram(program) {
+  const errors = [];
+  const E = ERROR_CODES;
+
   if (!isPlainObject(program)) {
-    return fail([err(ERROR_CODES.INVALID_DOCUMENT, 'Program must be an object {version, commands}.')]);
+    errors.push(makeError(E.INVALID_DOCUMENT, 'Program must be a JSON object.'));
+    return { ok: false, errors };
+  }
+  if (program.version !== PROGRAM_VERSION) {
+    errors.push(makeError(E.UNSUPPORTED_VERSION, `Program version must be ${PROGRAM_VERSION}, got ${JSON.stringify(program.version)}.`));
   }
   for (const key of Object.keys(program)) {
     if (key !== 'version' && key !== 'commands') {
-      return fail([err(ERROR_CODES.INVALID_DOCUMENT, `Unknown top-level field "${key}".`)]);
+      errors.push(makeError(E.INVALID_DOCUMENT, `Unknown top-level field "${key}".`));
     }
-  }
-  if (program.version !== PROGRAM_VERSION) {
-    return fail([err(ERROR_CODES.UNSUPPORTED_VERSION,
-      `Unsupported program version ${JSON.stringify(program.version)}; expected ${PROGRAM_VERSION}.`)]);
   }
   if (!Array.isArray(program.commands)) {
-    return fail([err(ERROR_CODES.INVALID_DOCUMENT, '"commands" must be an array.')]);
+    errors.push(makeError(E.INVALID_COMMANDS, 'Program "commands" must be an array.'));
+    return { ok: false, errors };
   }
-  if (program.commands.length > L.maxCommands) {
-    return fail([err(ERROR_CODES.TOO_MANY_COMMANDS,
-      `Program has ${program.commands.length} commands; the limit is ${L.maxCommands}.`)]);
+  if (program.commands.length > LIMITS.maxCommands) {
+    errors.push(makeError(E.TOO_MANY_COMMANDS, `A program may have at most ${LIMITS.maxCommands} commands (got ${program.commands.length}).`));
+    return { ok: false, errors };
   }
 
-  const errors = [];
-  const blockIds = new Set();
-  const bodies = new Map(); // id -> { static }
-  let bodyCount = 0;
+  const seenBlockIds = new Set();
+  /** body id -> { static } for bodies created so far (stack order). */
+  const bodies = new Map();
 
   program.commands.forEach((cmd, index) => {
+    const where = `Command ${index + 1}`;
     if (!isPlainObject(cmd)) {
-      errors.push(err(ERROR_CODES.INVALID_COMMAND, `Command ${index} must be an object.`));
+      errors.push(makeError(E.INVALID_COMMAND, `${where} must be an object.`));
       return;
     }
-    const { blockId } = cmd;
-    if (typeof blockId !== 'string' || blockId.length === 0 || blockId.length > L.maxBlockIdLength) {
-      errors.push(err(ERROR_CODES.INVALID_COMMAND,
-        `Command ${index} needs a blockId string of 1-${L.maxBlockIdLength} characters.`));
-      return;
-    }
-    if (blockIds.has(blockId)) {
-      errors.push(err(ERROR_CODES.DUPLICATE_BLOCK_ID, `blockId "${blockId}" is used more than once.`, blockId));
-      return;
-    }
-    blockIds.add(blockId);
+    const blockId = validBlockId(cmd.blockId) ? cmd.blockId : null;
+    const err = (code, message) => errors.push(makeError(code, message, blockId));
 
-    const spec = Object.prototype.hasOwnProperty.call(OPS, cmd.op) ? OPS[cmd.op] : null;
+    if (blockId === null) {
+      err(E.INVALID_BLOCK_ID, `${where} needs a "blockId" string of 1-${LIMITS.maxBlockIdLength} characters.`);
+    } else if (seenBlockIds.has(blockId)) {
+      err(E.DUPLICATE_BLOCK_ID, `${where} reuses blockId "${blockId}".`);
+    } else {
+      seenBlockIds.add(blockId);
+    }
+
+    const spec = typeof cmd.op === 'string' && hasOwn(OPS, cmd.op) ? OPS[cmd.op] : null;
     if (!spec) {
-      errors.push(err(ERROR_CODES.UNKNOWN_OP, `Unknown op ${JSON.stringify(cmd.op)}.`, blockId));
+      err(E.UNKNOWN_OP, `${where} has unknown op ${JSON.stringify(cmd.op)}.`);
       return;
     }
+    const label = `${cmd.op} (${where.toLowerCase()})`;
 
-    const allowed = new Set(['op', 'blockId', ...spec.map((f) => f[0])]);
-    let bad = false;
     for (const key of Object.keys(cmd)) {
-      if (!allowed.has(key)) {
-        errors.push(err(ERROR_CODES.UNKNOWN_FIELD, `${cmd.op} does not take field "${key}".`, blockId));
-        bad = true;
+      if (key !== 'op' && key !== 'blockId' && !hasOwn(spec, key)) {
+        err(E.UNKNOWN_FIELD, `${label}: unknown field "${key}".`);
       }
     }
-    for (const [name, kind, range] of spec) {
-      if (!(name in cmd)) {
-        errors.push(err(ERROR_CODES.MISSING_FIELD, `${cmd.op} is missing "${name}".`, blockId));
-        bad = true;
+
+    let fieldsOk = true;
+    for (const [field, kind] of Object.entries(spec)) {
+      if (!hasOwn(cmd, field) || cmd[field] === undefined) {
+        err(E.MISSING_FIELD, `${label}: missing "${field}".`);
+        fieldsOk = false;
         continue;
       }
-      const v = cmd[name];
-      if (kind === 'id') {
-        if (typeof v !== 'string' || v.length === 0 || v.length > L.maxBodyIdLength || !BODY_ID_PATTERN.test(v)) {
-          errors.push(err(ERROR_CODES.INVALID_ID,
-            `Body id must start with a letter, use letters, digits, "_" or "-", and be 1-${L.maxBodyIdLength} characters.`,
-            blockId));
-          bad = true;
+      const value = cmd[field];
+      if (kind === 'boolean') {
+        if (typeof value !== 'boolean') {
+          err(E.INVALID_TYPE, `${label}: "${field}" must be true or false.`);
+          fieldsOk = false;
         }
-      } else if (kind === 'boolean') {
-        if (typeof v !== 'boolean') {
-          errors.push(err(ERROR_CODES.INVALID_TYPE, `"${name}" must be true or false.`, blockId));
-          bad = true;
+      } else if (kind === 'bodyId' || kind === 'bodyRef') {
+        if (typeof value !== 'string') {
+          err(E.INVALID_TYPE, `${label}: "${field}" must be a string body id.`);
+          fieldsOk = false;
+        } else if (!LIMITS.bodyIdPattern.test(value)) {
+          err(E.INVALID_BODY_ID, `${label}: body id "${value}" must start with a letter or _ and use only letters, digits, _ or - (max 32).`);
+          fieldsOk = false;
         }
-      } else if (typeof v !== 'number' || !Number.isFinite(v)) {
-        errors.push(err(ERROR_CODES.INVALID_TYPE, `"${name}" must be a finite number.`, blockId));
-        bad = true;
-      } else if (v < range.min || v > range.max) {
-        errors.push(err(ERROR_CODES.OUT_OF_RANGE,
-          `"${name}" is ${v}; allowed range is ${range.min} to ${range.max}.`, blockId));
-        bad = true;
+      } else {
+        const [min, max] = LIMITS[kind];
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+          err(E.INVALID_NUMBER, `${label}: "${field}" must be a finite number.`);
+          fieldsOk = false;
+        } else if (value < min || value > max) {
+          err(E.OUT_OF_RANGE, `${label}: "${field}" must be between ${min} and ${max} (got ${value}).`);
+          fieldsOk = false;
+        }
       }
-    }
-    if (bad) {
-      // A create block with a bad value still declares its body, so blocks below that
-      // reference it are not also reported as UNKNOWN_BODY.
-      const isCreate = cmd.op === 'createCircle' || cmd.op === 'createBox';
-      if (isCreate && typeof cmd.id === 'string' && BODY_ID_PATTERN.test(cmd.id) && !bodies.has(cmd.id)) {
-        bodies.set(cmd.id, { static: cmd.static === true });
-        bodyCount += 1;
-      }
-      return;
     }
 
-    // Semantic checks, in stack order.
+    // Cross-command rules (stack order matters).
     if (cmd.op === 'createCircle' || cmd.op === 'createBox') {
-      if (bodies.has(cmd.id)) {
-        errors.push(err(ERROR_CODES.DUPLICATE_BODY_ID, `A body named "${cmd.id}" already exists.`, blockId));
-        return;
+      if (typeof cmd.id === 'string' && LIMITS.bodyIdPattern.test(cmd.id)) {
+        if (bodies.has(cmd.id)) {
+          err(E.DUPLICATE_BODY_ID, `${label}: body id "${cmd.id}" is already used.`);
+        } else if (bodies.size >= LIMITS.maxBodies) {
+          err(E.TOO_MANY_BODIES, `${label}: a program may create at most ${LIMITS.maxBodies} bodies.`);
+        } else {
+          bodies.set(cmd.id, { static: cmd.static === true });
+        }
       }
-      bodyCount += 1;
-      if (bodyCount > L.maxBodies) {
-        errors.push(err(ERROR_CODES.TOO_MANY_BODIES, `More than ${L.maxBodies} bodies.`, blockId));
-        return;
+      if (fieldsOk) {
+        const half = cmd.op === 'createCircle' ? cmd.radius : cmd.height / 2;
+        if (cmd.y - half < FLOOR_Y) {
+          err(E.BELOW_FLOOR, `${label}: body "${cmd.id}" starts below the floor (bottom edge y = ${cmd.y - half} m, floor y = ${FLOOR_Y}).`);
+        }
       }
-      const halfHeight = cmd.op === 'createCircle' ? cmd.radius : cmd.height / 2;
-      if (!cmd.static && cmd.y - halfHeight < FLOOR_Y) {
-        errors.push(err(ERROR_CODES.BODY_BELOW_FLOOR,
-          `Body "${cmd.id}" starts below the floor (its bottom is at y=${cmd.y - halfHeight}).`, blockId));
-        // Still register it so later references are not reported as unknown.
-      }
-      bodies.set(cmd.id, { static: cmd.static });
-    } else if (cmd.op === 'setVelocity' || cmd.op === 'applyForce') {
+    } else if (spec.id === 'bodyRef' && typeof cmd.id === 'string' && LIMITS.bodyIdPattern.test(cmd.id)) {
       const body = bodies.get(cmd.id);
       if (!body) {
-        errors.push(err(ERROR_CODES.UNKNOWN_BODY,
-          `No body named "${cmd.id}" has been created above this block.`, blockId));
+        err(E.UNKNOWN_BODY, `${label}: no body "${cmd.id}" has been created above this block.`);
       } else if (body.static) {
-        errors.push(err(ERROR_CODES.STATIC_BODY_TARGET,
-          `Body "${cmd.id}" is static and cannot be moved by ${cmd.op}.`, blockId));
+        err(E.STATIC_BODY, `${label}: body "${cmd.id}" is static and cannot be moved.`);
       }
     }
   });
 
-  return errors.length ? fail(errors) : { ok: true, errors: [] };
-}
-
-function fail(errors) {
-  return { ok: false, errors };
+  return { ok: errors.length === 0, errors };
 }

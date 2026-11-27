@@ -23,6 +23,7 @@ For a fresh installation, create a virtual environment and install requirements.
 
 ## Prototype modules (contract v1)
 
-The block-programming prototype lives in `static/js/motionlab/` (ES modules, no dependencies).
-Open the block lab at http://127.0.0.1:5050/lab. Run the tests with `npm test` (Node 20+). Spec: `docs/CONTRACT.md`. Setup, commands and open items: `docs/HANDOFF.md`.
-Canonical fixture: `fixtures/ball-and-box.program.json` with expected state in `fixtures/ball-and-box.expected.json`.
+The block-programming prototype lives in `static/js/motionlab/` (ES modules, no dependencies). Run the tests with `npm test` (Node 20+).
+Spec: `docs/CONTRACT.md`. Setup, commands, status and open items: `docs/HANDOFF.md`.
+Canonical fixture: `fixtures/ball-and-box.program.json`, its Blockly workspace `fixtures/ball-and-box.workspace.json`, and expected state `fixtures/ball-and-box.expected.json`.
+Open the block lab at http://127.0.0.1:5050/lab (Blockly 12.3.1 from the jsDelivr CDN, so it needs network access).
