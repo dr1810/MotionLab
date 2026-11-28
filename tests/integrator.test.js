@@ -171,11 +171,14 @@ test('snapshots are detached from engine state and from each other', () => {
 });
 
 test('engine is pure JS: no physics library, no browser timing or DOM', () => {
-  const src = readFileSync(new URL('../static/js/motionlab/engine.js', import.meta.url), 'utf8');
-  const code = src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  const imports = [...code.matchAll(/import[^'"]*['"]([^'"]+)['"]/g)].map((m) => m[1]);
-  assert.deepEqual(imports, ['./contract.js']);
-  for (const banned of ['matter', 'Matter', 'window', 'document', 'requestAnimationFrame', 'performance', 'setTimeout', 'setInterval', 'Date.now', 'canvas']) {
-    assert.ok(!code.includes(banned), `engine.js must not use ${banned}`);
+  const allowed = { 'engine.js': ['./contract.js', './collision.js'], 'collision.js': ['./contract.js'] };
+  for (const [file, wantImports] of Object.entries(allowed)) {
+    const src = readFileSync(new URL(`../static/js/motionlab/${file}`, import.meta.url), 'utf8');
+    const code = src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const imports = [...code.matchAll(/import[^'"]*['"]([^'"]+)['"]/g)].map((m) => m[1]);
+    assert.deepEqual(imports, wantImports, file);
+    for (const banned of ['matter', 'Matter', 'window', 'document', 'requestAnimationFrame', 'performance', 'setTimeout', 'setInterval', 'Date.now', 'canvas']) {
+      assert.ok(!code.includes(banned), `${file} must not use ${banned}`);
+    }
   }
 });

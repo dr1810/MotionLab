@@ -4,13 +4,18 @@
 // frame timing; each step() advances exactly DT. Spec: docs/CONTRACT.md
 
 import { DT, FLOOR_Y, DEFAULT_GRAVITY, ProgramError, validateProgram } from './contract.js';
+import { contactBetween, floorContact, halfExtents } from './collision.js';
 
+// Restitution rule: a contact closing at speed s (relative normal velocity at contact time, after this step's
+// integration) separates at e * s, where e = max(eA, eB) for two bodies and the body's own e against the floor.
+// Contacts closing slower than REST_SPEED do not bounce (e treated as 0), so resting bodies stay still.
 /** Contacts closing slower than this (m/s) do not bounce. Stops resting bodies from jittering. */
 export const REST_SPEED = 0.2;
 /** Velocity (impulse) solver passes per step. */
 export const SOLVER_ITERATIONS = 8;
 /** Position-correction passes per step. */
 export const POSITION_ITERATIONS = 4;
+// Both counts are fixed and small, so each step costs O(iterations * bodies^2) at most (32 bodies max).
 const BODY_CORRECTION = 0.8; // share of body-body overlap removed per pass
 const BODY_SLOP = 0.0005; // m of body-body overlap tolerated
 /** The floor as an immovable contact partner. */
@@ -73,51 +78,6 @@ function interpret(program) {
 
 const cloneBodies = (bodies) => bodies.map((b) => ({ ...b }));
 const clean = (n) => (n === 0 ? 0 : n); // normalize -0 so snapshots compare and serialize cleanly
-const halfHeight = (b) => (b.shape === 'circle' ? b.radius : b.height / 2);
-
-/** Contact between a and b: normal (nx, ny) points from a to b; depth > 0 means overlap. Null if apart. */
-function contact(a, b) {
-  if (a.shape === 'circle' && b.shape === 'circle') {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const r = a.radius + b.radius;
-    const d2 = dx * dx + dy * dy;
-    if (d2 >= r * r) return null;
-    const d = Math.sqrt(d2);
-    return d === 0 ? { nx: 0, ny: 1, depth: r } : { nx: dx / d, ny: dy / d, depth: r - d };
-  }
-  if (a.shape === 'box' && b.shape === 'box') {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const ox = a.width / 2 + b.width / 2 - Math.abs(dx);
-    const oy = a.height / 2 + b.height / 2 - Math.abs(dy);
-    if (ox <= 0 || oy <= 0) return null;
-    return ox < oy ? { nx: dx < 0 ? -1 : 1, ny: 0, depth: ox } : { nx: 0, ny: dy < 0 ? -1 : 1, depth: oy };
-  }
-  if (a.shape === 'circle') {
-    const c = contact(b, a);
-    return c && { nx: -c.nx, ny: -c.ny, depth: c.depth };
-  }
-  // a is a box, b is a circle.
-  const hw = a.width / 2;
-  const hh = a.height / 2;
-  const rx = b.x - a.x;
-  const ry = b.y - a.y;
-  if (Math.abs(rx) <= hw && Math.abs(ry) <= hh) {
-    // Circle center inside the box: push out through the nearest face.
-    const fx = hw - Math.abs(rx);
-    const fy = hh - Math.abs(ry);
-    return fx < fy
-      ? { nx: rx < 0 ? -1 : 1, ny: 0, depth: b.radius + fx }
-      : { nx: 0, ny: ry < 0 ? -1 : 1, depth: b.radius + fy };
-  }
-  const dx = rx - Math.max(-hw, Math.min(hw, rx));
-  const dy = ry - Math.max(-hh, Math.min(hh, ry));
-  const d2 = dx * dx + dy * dy;
-  if (d2 >= b.radius * b.radius) return null;
-  const d = Math.sqrt(d2);
-  return { nx: dx / d, ny: dy / d, depth: b.radius - d };
-}
 
 const invMass = (b) => (b === FLOOR ? 0 : b.invMass);
 
@@ -138,12 +98,12 @@ function collectContacts(bodies) {
   };
   for (let i = 0; i < bodies.length; i++) {
     for (let j = i + 1; j < bodies.length; j++) {
-      const c = contact(bodies[i], bodies[j]);
+      const c = contactBetween(bodies[i], bodies[j]);
       if (c) add(bodies[i], bodies[j], c.nx, c.ny);
     }
   }
   for (const b of bodies) {
-    if (!b.static && b.y - halfHeight(b) < FLOOR_Y) add(FLOOR, b, 0, 1);
+    if (!b.static && floorContact(b)) add(FLOOR, b, 0, 1);
   }
   return contacts;
 }
@@ -175,7 +135,7 @@ function correctPositions(bodies) {
       const ia = invMass(a);
       const ib = invMass(b);
       if (ia + ib === 0) continue;
-      const c = contact(a, b);
+      const c = contactBetween(a, b);
       if (!c) continue;
       const corr = (Math.max(c.depth - BODY_SLOP, 0) * BODY_CORRECTION) / (ia + ib);
       a.x -= c.nx * corr * ia;
@@ -185,7 +145,7 @@ function correctPositions(bodies) {
     }
   }
   for (const b of bodies) {
-    if (!b.static && b.y - halfHeight(b) < FLOOR_Y) b.y = FLOOR_Y + halfHeight(b);
+    if (!b.static && floorContact(b)) b.y = FLOOR_Y + halfExtents(b).hy;
   }
 }
 

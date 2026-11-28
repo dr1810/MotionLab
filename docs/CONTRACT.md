@@ -12,6 +12,7 @@ All modules are ES modules with no dependencies. They run unchanged in Node ≥ 
 |---|---|
 | `static/js/motionlab/contract.js` | `CONTRACT_VERSION` (1), `PROGRAM_VERSION` (1), `DT` (1/120), `FLOOR_Y` (0), `DEFAULT_GRAVITY` ({x: 0, y: -9.81}), `LIMITS`, `OPS`, `ERROR_CODES`, `makeError(code, message, blockId?)`, `ProgramError`, `validateProgram(program)` |
 | `static/js/motionlab/engine.js` | `createSimulation(program)`, `REST_SPEED` (0.2 m/s), `SOLVER_ITERATIONS` (8), `POSITION_ITERATIONS` (4) |
+| `static/js/motionlab/collision.js` | `contactBetween(a, b)`, `floorContact(b)`, `halfExtents(b)`, `maxSafeRelativeSpeed(a, b)` (pure, on the engine's internal body records) |
 | `static/js/motionlab/compile.js` | `compileWorkspace(workspaceJson)`, `BLOCK_TYPES`, `START_BLOCK_TYPE` (`"motionlab_start"`) |
 | `static/js/motionlab/view.js` | `createView({width, height, scale, worldLeft?, floorOffset?})`, `fitView(snapshot, {width, height, padding?, floorOffset?, minScale?, maxScale?})` |
 | `static/js/motionlab/compile.js` (also) | `programToWorkspace(program)`: the inverse, for Example/Open |
@@ -157,11 +158,55 @@ sim.reset();    // back to the compiled initial scene, tick 0, forces re-armed; 
    Static bodies have `invMass = 0` and are skipped. The one-tick force `F` is cleared after this step, and
    `reset()` restores it.
 2. Collect contacts: body pairs in creation order, then floor contacts. Each contact's target separation speed is
-   `e·|vn|` if it is closing faster than `REST_SPEED` (0.2 m/s), else 0. Pairs use `e = max(eA, eB)`; the floor
-   uses the body's restitution.
-3. Eight sequential-impulse passes over all contacts, with the accumulated impulse clamped at ≥ 0.
-4. Four position-correction passes: body overlaps (80% per pass, 0.5 mm slop), then an exact floor clamp. So no
-   dynamic body ever ends a step below the floor.
+   set by the restitution rule below.
+3. Eight sequential-impulse passes over all contacts. Each impulse is split by inverse mass, and the accumulated
+   impulse per contact is clamped at ≥ 0, so contacts only push. Contacts that are already separating get no impulse.
+4. Four position-correction passes: body overlaps are pushed apart by 80% per pass beyond a 0.5 mm slop, split by
+   inverse mass (static bodies never move; the center of mass of two dynamic bodies is unchanged). Then an exact
+   floor clamp, so no dynamic body ever ends a step below the floor.
+
+Cost per step is bounded: at most (8 + 4) passes over ≤ 32·31/2 pairs plus 32 floor checks.
+
+### Contacts (`collision.js`)
+
+Bodies never rotate. A contact is `{ nx, ny, depth }`: `(nx, ny)` is a unit normal pointing **from the first body to
+the second** (from the floor upward for floor contacts), and `depth > 0` is the penetration along it. Touching
+(depth exactly 0) is not a contact. Swapping the two bodies negates the normal and keeps the depth.
+
+| Pair | Normal and depth |
+|---|---|
+| circle–circle | along the line between centers; depth `rA + rB − distance`. **Coincident centers:** `(0, 1)`, depth `rA + rB` |
+| box–box | the axis of least overlap, signed toward the second box; depth = overlap on that axis. **Tie:** y axis. Zero offset on the chosen axis points `+x`/`+y` |
+| box–circle, center outside the box | from the closest point on the box to the circle center; depth `r − distance` (a corner gives a diagonal normal) |
+| box–circle, **center inside the box** | out through the nearest face; depth `r + distance to that face`. **Tie:** y face. Zero offset points `+x`/`+y` |
+| floor–body | `(0, 1)`, depth `0 − (y − half height)` (radius for circles) |
+
+### Restitution rule
+
+A contact closing at speed `s` (the relative normal velocity at contact time, measured after this step's
+integration, so it includes one tick of gravity) separates at `e·s`:
+
+- body–body: `e = max(eA, eB)`
+- body–floor: `e` is the body's own restitution
+- if `s < REST_SPEED` (0.2 m/s), `e` is treated as 0. That is what lets resting bodies sit still, but it also means a
+  very slow collision is perfectly inelastic, even at `e = 1` (momentum is still conserved).
+
+With `e = 1` and `s ≥ REST_SPEED`, an isolated two-body collision conserves momentum and kinetic energy to within
+floating-point rounding. The test checks relative error ≤ 1e-12.
+
+### Supported range and tunneling
+
+Contacts are detected only at the end of each 1/120 s step (no swept or continuous detection). Two bodies are
+handled correctly while their relative speed stays below `maxSafeRelativeSpeed(a, b)` = (smallest half extent of
+either body) / DT, i.e. 120 × that half extent per second. Examples: a 0.25 m-radius ball against anything at least
+that big is safe up to 30 m/s; two 0.01 m-thick bodies only up to 1.2 m/s. Above the limit a body can pass
+straight through a thin one, or be pushed out of the wrong side. The floor is an infinite half-plane, so nothing
+tunnels through it.
+
+The canonical fixture peaks at 6.32 m/s relative speed (tick 71, just before the ball lands on the box), 21% of its
+30 m/s limit (`tests/contacts.test.js`
+checks this for 20 s). The program limits (velocity up to 1000 m/s, size down to 0.01 m) allow unsafe scenes on
+purpose. Those scenes are valid; they are just outside the solver's accuracy range.
 
 ## Blocks → program (compiler)
 

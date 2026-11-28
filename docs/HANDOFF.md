@@ -31,7 +31,7 @@ and prototype tests: Claude. Spec: [CONTRACT.md](CONTRACT.md).
 | `GET /static/js/simulation.js`, `/static/css/style.css` | 200 (`text/javascript`, `text/css`) |
 | `GET /lab` | **500, `TemplateNotFound: lab.html`** (template deleted). Fixed: page rebuilt |
 | `GET /fixtures/ball-and-box.program.json` | **404** (fixture deleted). Now 200 again |
-| `npm test` | not runnable (`package.json` deleted). Now 76/76 pass |
+| `npm test` | not runnable (`package.json` deleted). Now 94/94 pass |
 
 ## Current state
 
@@ -54,7 +54,8 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | Path | Purpose |
 |---|---|
 | `static/js/motionlab/contract.js` | version, `DT`, `FLOOR_Y`, limits, ops, error codes, `validateProgram`, `ProgramError` |
-| `static/js/motionlab/engine.js` | `createSimulation(program)` → `{step, reset, snapshot}` |
+| `static/js/motionlab/engine.js` | `createSimulation(program)` → `{step, reset, snapshot}`; integrator + contact solver |
+| `static/js/motionlab/collision.js` | contact detection for every pair, normals/depths, safe-speed bound |
 | `static/js/motionlab/compile.js` | Blockly workspace JSON (single start stack) → program v1 |
 | `static/js/motionlab/view.js` | meter↔pixel transform; `view.floorPx` is the floor row |
 | `static/js/motionlab/blocks.js` | Blockly block JSON + toolbox generated from `BLOCK_TYPES`/`OPS`/`LIMITS`; `uniqueBodyId` |
@@ -65,7 +66,7 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `static/js/lab.js` | page glue: Blockly ↔ compiler ↔ engine ↔ canvas, files, autosave. No logic worth unit-testing lives here |
 | `templates/lab.html`, `static/css/lab.css` | the block lab page |
 | `fixtures/ball-and-box.{program,workspace,expected}.json` | canonical fixture (the workspace is what Example loads) |
-| `tests/{contract,engine,integrator,compile,view,frontend}.test.js`, `tests/helpers.js` | 76 tests |
+| `tests/{contract,engine,integrator,contacts,compile,view,frontend}.test.js`, `tests/helpers.js` | 94 tests |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
 ## The block lab (`/`)
@@ -121,6 +122,13 @@ lifetime, time from tick count, iteration order, reset reproducibility, detached
 node --test tests/integrator.test.js
 ```
 
+Contact tests only (normals and depths for every pair including coincident circles and a circle inside a box, floor
+bounce and rest, static vs dynamic, separating contacts, overlap weighting, elastic momentum/energy, tunneling):
+
+```bash
+node --test tests/contacts.test.js
+```
+
 Full check (syntax-check the legacy demo script, then run the tests):
 
 ```bash
@@ -157,6 +165,11 @@ jsDelivr CDN.
 
 ## Known failures / open items
 
+- Contact tests: no failing cases (94/94 total on Node 24.16.0, 2026-11-27). Mutation-checked: restitution
+  `min` instead of `max`, ignoring mass in overlap correction, removing the impulse clamp, and a different
+  coincident-circle normal each make the matching tests in `tests/contacts.test.js` fail.
+- Known solver limits (documented in CONTRACT.md, "Supported range and tunneling"): no continuous collision, so fast
+  thin bodies can pass through each other (a test pins this); collisions slower than 0.2 m/s are inelastic.
 - Engine tests: no failing cases (76/76 on Node 24.16.0, 2026-11-27). The integrator tests were mutation-checked:
   not clearing one-tick forces, letting static bodies integrate, and swapping to explicit Euler each make the
   matching tests in `tests/integrator.test.js` fail.
@@ -187,8 +200,9 @@ jsDelivr CDN.
 ## Diagnosing defects
 
 1. Run `npm test`. The fixture tests in `tests/engine.test.js` compare against `fixtures/ball-and-box.expected.json`
-   with tolerance 1e-9. If `afterTick1` fails, the integrator or force handling changed. If only the bounce test fails,
-   look at the solver (`collectContacts` / `solveVelocities` in `engine.js`).
+   with tolerance 1e-9. If `afterTick1` fails, the integrator or force handling changed. If only a contact test fails,
+   check `tests/contacts.test.js`. Detection lives in `collision.js` (normals/depths); resolution is
+   `collectContacts` / `solveVelocities` / `correctPositions` in `engine.js`.
 2. Reproduce in Node, from the repo root:
    ```bash
    node -e "import('./static/js/motionlab/index.js').then(m=>{const p=JSON.parse(require('fs').readFileSync('fixtures/ball-and-box.program.json'));const s=m.createSimulation(p);console.log(JSON.stringify(s.snapshot()));console.log(JSON.stringify(s.step()))})"
