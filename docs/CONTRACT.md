@@ -93,6 +93,17 @@ Every error is exactly `{ code, message, blockId }`. `message` is human-readable
 is stable. **`blockId` is `null` for document-level errors**, and also for command errors when the command has no
 usable `blockId`.
 
+Messages are actionable: each names the block (`op (command N)`), what is wrong and how to fix it. For example:
+`setVelocity (command 1): body "ball" is created further down. Move this block below the block that creates "ball".`
+or `… there is no body "bal". Bodies created above: ball, box.` The UI shows `message` as is.
+
+**Static targets (defined behaviour):** `setVelocity` or `applyForce` aimed at a static body is a `STATIC_BODY` error
+on that block ("Untick static … or remove this block"). It is rejected, never silently ignored.
+
+**Order:** commands run top to bottom. A body must be created above any block that names it. `setGravity` may come
+anywhere (the last one wins). For one body, `setVelocity` and `applyForce` may come in either order: the velocity
+sets the starting value and the force adds its one-tick impulse on top.
+
 | code | level | when |
 |---|---|---|
 | `INVALID_DOCUMENT` | document | program is not a JSON object, or has an unknown top-level field |
@@ -251,6 +262,7 @@ program with an unknown op raise `FileFormatError` with a one-line reason. Expor
 | `fixtures/ball-and-box.program.json` | program v1: gravity −9.81; box `box` 1×1 m, 2 kg, e 0.2 at (2, 0.5) resting on the floor; ball `ball` r 0.25 m, 1 kg, e 0.6 at (0, 3); ball velocity (1.5, 0); force (120, 0) N on the ball |
 | `fixtures/ball-and-box.workspace.json` | Blockly workspace JSON that compiles to exactly that program (block ids = blockIds, start block `blk-start`) |
 | `fixtures/ball-and-box.expected.json` | `initial`, `afterTick1`, `afterTick2` snapshots, tolerance 1e-9, with derivations |
+| `fixtures/ball-and-box.snapshots.json` | **recorded** real engine snapshots at named events from a headless 20 s run, plus a 0.1 s ball trajectory for the first 4 s. Regenerate with `npm run fixture:record`; compared exactly by `tests/simulation.test.js` and `npm run fixture:check` |
 
 Expected results:
 
@@ -258,7 +270,16 @@ Expected results:
 - `afterTick1` (time 1/120): ball v = (2.5, −0.08175), p = (0.0208333…, 2.99931875). The box is unchanged at
   (2, 0.5) with v = 0.
 - `afterTick2`: ball vx stays 2.5 (the force acted on tick 1 only); v = (2.5, −0.1635), p = (0.0416666…, 2.99795625).
-- Later behaviour, covered by tests rather than the fixture file: around tick 72 (0.6 s) the ball lands on the top
-  edge of the box and bounces up at ≈ 0.6 × its closing speed. The box, supported by the floor, does not move. The
-  ball then falls off the right side, bounces on the floor, settles at y = 0.25 and keeps rolling right at 2.5 m/s
-  (there is no friction).
+- Recorded events (`fixtures/ball-and-box.snapshots.json`; ball position and velocity, rounded here). The box stays
+  at (2, 0.5) throughout:
+
+| event | tick | time (s) | ball (x, y) m | ball (vx, vy) m/s |
+|---|---|---|---|---|
+| setup | 0 | 0 | (0, 3) | (1.5, 0) |
+| firstTick | 1 | 0.0083 | (0.0208, 2.9993) | (2.5, −0.0818) |
+| preImpact | 71 | 0.5917 | (1.4792, 1.2587) | (2.5, −5.8043) |
+| impact (on the box top-left edge) | 72 | 0.6 | (1.5, 1.2476) | (2.5, 3.4811) |
+| peakAfterBounce | 115 | 0.9583 | (2.3958, 1.8505) | (2.5, −0.0342) |
+| floorImpact | 183 | 1.525 | (3.8125, 0.25) | (2.5, 3.3559) |
+| rest (y = 0.25, vy = 0 from here on) | 375 | 3.125 | (7.8125, 0.25) | (2.5, 0) |
+| end | 2400 | 20 | (50, 0.25) | (2.5, 0) |

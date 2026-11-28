@@ -21,59 +21,73 @@ const BODY_SLOP = 0.0005; // m of body-body overlap tolerated
 /** The floor as an immovable contact partner. */
 const FLOOR = Object.freeze({ vx: 0, vy: 0, restitution: 0 });
 
+function makeBody(cmd, shape) {
+  const circle = shape === 'circle';
+  return {
+    id: cmd.id,
+    shape,
+    x: cmd.x,
+    y: cmd.y,
+    vx: 0,
+    vy: 0,
+    radius: circle ? cmd.radius : 0,
+    width: circle ? 0 : cmd.width,
+    height: circle ? 0 : cmd.height,
+    mass: cmd.mass,
+    invMass: cmd.static ? 0 : 1 / cmd.mass, // static bodies: zero inverse mass, never integrated
+    restitution: cmd.restitution,
+    static: cmd.static,
+    fx: 0, // one-tick force (N): applied by the first step, then cleared; reset() restores it
+    fy: 0,
+  };
+}
+
 /**
- * Interpret program commands in stack order into the initial scene. Assumes a validated program.
+ * Scene compiler: one handler per contract op, keyed by op name. Commands are plain JSON data; only ops that
+ * are own keys of this table are ever dispatched (validateProgram has already rejected anything else).
+ */
+const COMMAND_HANDLERS = Object.freeze({
+  createCircle(scene, cmd) {
+    scene.add(makeBody(cmd, 'circle'));
+  },
+  createBox(scene, cmd) {
+    scene.add(makeBody(cmd, 'box'));
+  },
+  setGravity(scene, cmd) {
+    scene.gravity = { x: cmd.x, y: cmd.y }; // the last one wins
+  },
+  setVelocity(scene, cmd) {
+    const body = scene.get(cmd.id); // the last one wins
+    body.vx = cmd.vx;
+    body.vy = cmd.vy;
+  },
+  applyForce(scene, cmd) {
+    const body = scene.get(cmd.id); // several forces on one body add up
+    body.fx += cmd.fx;
+    body.fy += cmd.fy;
+  },
+});
+
+/**
+ * Compile a validated program into the initial scene by running its commands once, in stack order.
  * Returns plain data that the step loop copies; the program object is never retained.
  */
-function interpret(program) {
-  const scene = { gravity: { x: DEFAULT_GRAVITY.x, y: DEFAULT_GRAVITY.y }, bodies: [] };
+function compileScene(program) {
   const byId = new Map();
+  const scene = {
+    gravity: { x: DEFAULT_GRAVITY.x, y: DEFAULT_GRAVITY.y },
+    bodies: [],
+    add(body) {
+      this.bodies.push(body);
+      byId.set(body.id, body);
+    },
+    get: (id) => byId.get(id),
+  };
   for (const cmd of program.commands) {
-    switch (cmd.op) {
-      case 'createCircle':
-      case 'createBox': {
-        const circle = cmd.op === 'createCircle';
-        const body = {
-          id: cmd.id,
-          shape: circle ? 'circle' : 'box',
-          x: cmd.x,
-          y: cmd.y,
-          vx: 0,
-          vy: 0,
-          radius: circle ? cmd.radius : 0,
-          width: circle ? 0 : cmd.width,
-          height: circle ? 0 : cmd.height,
-          mass: cmd.mass,
-          invMass: cmd.static ? 0 : 1 / cmd.mass, // static bodies: zero inverse mass, never integrated
-          restitution: cmd.restitution,
-          static: cmd.static,
-          fx: 0, // one-tick force (N): applied by the first step, then cleared; reset() restores it
-          fy: 0,
-        };
-        scene.bodies.push(body);
-        byId.set(body.id, body);
-        break;
-      }
-      case 'setGravity':
-        scene.gravity = { x: cmd.x, y: cmd.y };
-        break;
-      case 'setVelocity': {
-        const body = byId.get(cmd.id);
-        body.vx = cmd.vx;
-        body.vy = cmd.vy;
-        break;
-      }
-      case 'applyForce': {
-        const body = byId.get(cmd.id);
-        body.fx += cmd.fx;
-        body.fy += cmd.fy;
-        break;
-      }
-      default:
-        throw new Error(`unreachable op ${cmd.op}`);
-    }
+    if (!Object.prototype.hasOwnProperty.call(COMMAND_HANDLERS, cmd.op)) throw new Error(`unvalidated op ${cmd.op}`);
+    COMMAND_HANDLERS[cmd.op](scene, cmd);
   }
-  return scene;
+  return { gravity: scene.gravity, bodies: scene.bodies };
 }
 
 const cloneBodies = (bodies) => bodies.map((b) => ({ ...b }));
@@ -167,10 +181,11 @@ function bodySnapshot(b) {
  * @throws {ProgramError} with .code 'INVALID_PROGRAM' and .errors (validateProgram list) when invalid
  */
 export function createSimulation(program) {
+  // The whole program is validated before anything runs: an invalid program never yields a session.
   const { ok, errors } = validateProgram(program);
   if (!ok) throw new ProgramError(errors);
 
-  const initial = interpret(program);
+  const initial = compileScene(program);
   const gravity = initial.gravity;
   let bodies;
   let tick;

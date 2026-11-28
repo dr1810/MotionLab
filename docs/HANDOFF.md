@@ -31,7 +31,7 @@ and prototype tests: Claude. Spec: [CONTRACT.md](CONTRACT.md).
 | `GET /static/js/simulation.js`, `/static/css/style.css` | 200 (`text/javascript`, `text/css`) |
 | `GET /lab` | **500, `TemplateNotFound: lab.html`** (template deleted). Fixed: page rebuilt |
 | `GET /fixtures/ball-and-box.program.json` | **404** (fixture deleted). Now 200 again |
-| `npm test` | not runnable (`package.json` deleted). Now 94/94 pass |
+| `npm test` | not runnable (`package.json` deleted). Now 108/108 pass |
 
 ## Current state
 
@@ -66,7 +66,8 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `static/js/lab.js` | page glue: Blockly ↔ compiler ↔ engine ↔ canvas, files, autosave. No logic worth unit-testing lives here |
 | `templates/lab.html`, `static/css/lab.css` | the block lab page |
 | `fixtures/ball-and-box.{program,workspace,expected}.json` | canonical fixture (the workspace is what Example loads) |
-| `tests/{contract,engine,integrator,contacts,compile,view,frontend}.test.js`, `tests/helpers.js` | 94 tests |
+| `fixtures/ball-and-box.snapshots.json`, `scripts/record-fixture.js` | real snapshots recorded headlessly (setup → impact → rest), and the recorder |
+| `tests/{contract,engine,integrator,contacts,simulation,compile,view,frontend}.test.js`, `tests/helpers.js` | 108 tests |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
 ## The block lab (`/`)
@@ -129,7 +130,25 @@ bounce and rest, static vs dynamic, separating contacts, overlap weighting, elas
 node --test tests/contacts.test.js
 ```
 
-Full check (syntax-check the legacy demo script, then run the tests):
+Session tests only (whole-program validation, malformed and out-of-order programs, static targets, multiple forces,
+reset-and-replay, the recorded fixture, and drawing the recorded snapshots):
+
+```bash
+node --test tests/simulation.test.js
+```
+
+Re-run the fixture headlessly and compare it with the recorded snapshots (exit 1 if they differ), or re-record
+after an intended engine change (then review the JSON diff):
+
+```bash
+npm run fixture:check
+```
+
+```bash
+npm run fixture:record
+```
+
+Full check (syntax-check the legacy demo script, check the recorded snapshots, then run the tests):
 
 ```bash
 npm run check
@@ -165,6 +184,9 @@ jsDelivr CDN.
 
 ## Known failures / open items
 
+- Session tests: no failing cases (108/108 total on Node 24.16.0, 2026-11-27). Mutation-checked: allowing
+  velocity/force on static bodies fails the STATIC_BODY test, and changing `REST_SPEED` 0.2 → 0.21 fails the exact
+  recorded-snapshot test and makes `npm run fixture:check` exit 1.
 - Contact tests: no failing cases (94/94 total on Node 24.16.0, 2026-11-27). Mutation-checked: restitution
   `min` instead of `max`, ignoring mass in overlap correction, removing the impulse clamp, and a different
   coincident-circle normal each make the matching tests in `tests/contacts.test.js` fail.
@@ -199,6 +221,10 @@ jsDelivr CDN.
 
 ## Diagnosing defects
 
+0. Run `npm run fixture:check`. If it fails, the engine no longer reproduces the recorded run. Diff
+   `fixtures/ball-and-box.snapshots.json` against `npm run fixture:record` output (in a scratch copy) to see
+   which event changed first: setup/firstTick means the compiler or integrator, impact or later means contacts.
+   The event table is in CONTRACT.md, "Canonical fixture".
 1. Run `npm test`. The fixture tests in `tests/engine.test.js` compare against `fixtures/ball-and-box.expected.json`
    with tolerance 1e-9. If `afterTick1` fails, the integrator or force handling changed. If only a contact test fails,
    check `tests/contacts.test.js`. Detection lives in `collision.js` (normals/depths); resolution is

@@ -106,34 +106,38 @@ export function validateProgram(program) {
   const E = ERROR_CODES;
 
   if (!isPlainObject(program)) {
-    errors.push(makeError(E.INVALID_DOCUMENT, 'Program must be a JSON object.'));
+    errors.push(makeError(E.INVALID_DOCUMENT, 'Program must be a JSON object like {"version": 1, "commands": [...]}.'));
     return { ok: false, errors };
   }
   if (program.version !== PROGRAM_VERSION) {
-    errors.push(makeError(E.UNSUPPORTED_VERSION, `Program version must be ${PROGRAM_VERSION}, got ${JSON.stringify(program.version)}.`));
+    errors.push(makeError(E.UNSUPPORTED_VERSION, `Program version must be ${PROGRAM_VERSION}, got ${JSON.stringify(program.version)}. Set "version": ${PROGRAM_VERSION}.`));
   }
   for (const key of Object.keys(program)) {
     if (key !== 'version' && key !== 'commands') {
-      errors.push(makeError(E.INVALID_DOCUMENT, `Unknown top-level field "${key}".`));
+      errors.push(makeError(E.INVALID_DOCUMENT, `Unknown top-level field "${key}". A program has only "version" and "commands"; remove "${key}".`));
     }
   }
   if (!Array.isArray(program.commands)) {
-    errors.push(makeError(E.INVALID_COMMANDS, 'Program "commands" must be an array.'));
+    errors.push(makeError(E.INVALID_COMMANDS, 'Program "commands" must be an array of commands (use [] for an empty program).'));
     return { ok: false, errors };
   }
   if (program.commands.length > LIMITS.maxCommands) {
-    errors.push(makeError(E.TOO_MANY_COMMANDS, `A program may have at most ${LIMITS.maxCommands} commands (got ${program.commands.length}).`));
+    errors.push(makeError(E.TOO_MANY_COMMANDS, `A program may have at most ${LIMITS.maxCommands} commands (got ${program.commands.length}). Remove ${program.commands.length - LIMITS.maxCommands} or more.`));
     return { ok: false, errors };
   }
 
   const seenBlockIds = new Set();
+  /** Every body id any create command declares, to tell "created later" from "never created". */
+  const createdIds = new Set(program.commands
+    .filter((c) => isPlainObject(c) && (c.op === 'createCircle' || c.op === 'createBox') && typeof c.id === 'string')
+    .map((c) => c.id));
   /** body id -> { static } for bodies created so far (stack order). */
   const bodies = new Map();
 
   program.commands.forEach((cmd, index) => {
     const where = `Command ${index + 1}`;
     if (!isPlainObject(cmd)) {
-      errors.push(makeError(E.INVALID_COMMAND, `${where} must be an object.`));
+      errors.push(makeError(E.INVALID_COMMAND, `${where} must be an object with "op" and "blockId".`));
       return;
     }
     const blockId = validBlockId(cmd.blockId) ? cmd.blockId : null;
@@ -142,28 +146,28 @@ export function validateProgram(program) {
     if (blockId === null) {
       err(E.INVALID_BLOCK_ID, `${where} needs a "blockId" string of 1-${LIMITS.maxBlockIdLength} characters.`);
     } else if (seenBlockIds.has(blockId)) {
-      err(E.DUPLICATE_BLOCK_ID, `${where} reuses blockId "${blockId}".`);
+      err(E.DUPLICATE_BLOCK_ID, `${where} reuses blockId "${blockId}". Every command needs its own blockId.`);
     } else {
       seenBlockIds.add(blockId);
     }
 
     const spec = typeof cmd.op === 'string' && hasOwn(OPS, cmd.op) ? OPS[cmd.op] : null;
     if (!spec) {
-      err(E.UNKNOWN_OP, `${where} has unknown op ${JSON.stringify(cmd.op)}.`);
+      err(E.UNKNOWN_OP, `${where} has unknown op ${JSON.stringify(cmd.op)}. Use one of: ${Object.keys(OPS).join(', ')}.`);
       return;
     }
     const label = `${cmd.op} (${where.toLowerCase()})`;
 
     for (const key of Object.keys(cmd)) {
       if (key !== 'op' && key !== 'blockId' && !hasOwn(spec, key)) {
-        err(E.UNKNOWN_FIELD, `${label}: unknown field "${key}".`);
+        err(E.UNKNOWN_FIELD, `${label}: unknown field "${key}". Allowed: ${Object.keys(spec).join(', ')}.`);
       }
     }
 
     let fieldsOk = true;
     for (const [field, kind] of Object.entries(spec)) {
       if (!hasOwn(cmd, field) || cmd[field] === undefined) {
-        err(E.MISSING_FIELD, `${label}: missing "${field}".`);
+        err(E.MISSING_FIELD, `${label}: missing "${field}". Add a value for "${field}".`);
         fieldsOk = false;
         continue;
       }
@@ -184,10 +188,10 @@ export function validateProgram(program) {
       } else {
         const [min, max] = LIMITS[kind];
         if (typeof value !== 'number' || !Number.isFinite(value)) {
-          err(E.INVALID_NUMBER, `${label}: "${field}" must be a finite number.`);
+          err(E.INVALID_NUMBER, `${label}: "${field}" must be a finite number (got ${JSON.stringify(value) ?? String(value)}).`);
           fieldsOk = false;
         } else if (value < min || value > max) {
-          err(E.OUT_OF_RANGE, `${label}: "${field}" must be between ${min} and ${max} (got ${value}).`);
+          err(E.OUT_OF_RANGE, `${label}: "${field}" must be between ${min} and ${max} (got ${value}). Use a value in that range.`);
           fieldsOk = false;
         }
       }
@@ -197,9 +201,9 @@ export function validateProgram(program) {
     if (cmd.op === 'createCircle' || cmd.op === 'createBox') {
       if (typeof cmd.id === 'string' && LIMITS.bodyIdPattern.test(cmd.id)) {
         if (bodies.has(cmd.id)) {
-          err(E.DUPLICATE_BODY_ID, `${label}: body id "${cmd.id}" is already used.`);
+          err(E.DUPLICATE_BODY_ID, `${label}: body id "${cmd.id}" is already used by a block above. Give this body a different name.`);
         } else if (bodies.size >= LIMITS.maxBodies) {
-          err(E.TOO_MANY_BODIES, `${label}: a program may create at most ${LIMITS.maxBodies} bodies.`);
+          err(E.TOO_MANY_BODIES, `${label}: a program may create at most ${LIMITS.maxBodies} bodies. Remove this or another body block.`);
         } else {
           bodies.set(cmd.id, { static: cmd.static === true });
         }
@@ -207,15 +211,19 @@ export function validateProgram(program) {
       if (fieldsOk) {
         const half = cmd.op === 'createCircle' ? cmd.radius : cmd.height / 2;
         if (cmd.y - half < FLOOR_Y) {
-          err(E.BELOW_FLOOR, `${label}: body "${cmd.id}" starts below the floor (bottom edge y = ${cmd.y - half} m, floor y = ${FLOOR_Y}).`);
+          err(E.BELOW_FLOOR, `${label}: body "${cmd.id}" starts below the floor (bottom edge y = ${cmd.y - half} m, floor y = ${FLOOR_Y}). Set y to at least ${FLOOR_Y + half}.`);
         }
       }
     } else if (spec.id === 'bodyRef' && typeof cmd.id === 'string' && LIMITS.bodyIdPattern.test(cmd.id)) {
       const body = bodies.get(cmd.id);
       if (!body) {
-        err(E.UNKNOWN_BODY, `${label}: no body "${cmd.id}" has been created above this block.`);
+        const later = createdIds.has(cmd.id);
+        const known = [...bodies.keys()];
+        err(E.UNKNOWN_BODY, later
+          ? `${label}: body "${cmd.id}" is created further down. Move this block below the block that creates "${cmd.id}".`
+          : `${label}: there is no body "${cmd.id}". ${known.length ? `Bodies created above: ${known.join(', ')}.` : 'Create a body above this block first.'}`);
       } else if (body.static) {
-        err(E.STATIC_BODY, `${label}: body "${cmd.id}" is static and cannot be moved.`);
+        err(E.STATIC_BODY, `${label}: body "${cmd.id}" is static, so it cannot be given a velocity or force. Untick "static" on "${cmd.id}" or remove this block.`);
       }
     }
   });

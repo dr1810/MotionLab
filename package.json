@@ -8,6 +8,8 @@
   },
   "scripts": {
     "test": "node --test \"tests/*.test.js\"",
-    "check": "node --check static/js/simulation.js && node --test \"tests/*.test.js\""
+    "check": "node --check static/js/simulation.js && node scripts/record-fixture.js --check && node --test \"tests/*.test.js\"",
+    "fixture:record": "node scripts/record-fixture.js",
+    "fixture:check": "node scripts/record-fixture.js --check"
   }
 }
