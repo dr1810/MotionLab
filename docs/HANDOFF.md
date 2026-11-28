@@ -37,7 +37,7 @@ needs a server. Details and sources are in ARCHITECTURE.md.
 | `GET /static/js/simulation.js`, `/static/css/style.css` | 200 (`text/javascript`, `text/css`) |
 | `GET /lab` | **500, `TemplateNotFound: lab.html`** (template deleted). Fixed: page rebuilt |
 | `GET /fixtures/ball-and-box.program.json` | **404** (fixture deleted). Now 200 again |
-| `npm test` | not runnable (`package.json` deleted). Now 124/124 pass (+ 6 Python route tests) |
+| `npm test` | not runnable (`package.json` deleted). Now 137/137 pass (+ 6 Python route tests) |
 
 ## Current state
 
@@ -64,16 +64,19 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `static/js/motionlab/collision.js` | contact detection for every pair, normals/depths, safe-speed bound |
 | `static/js/motionlab/compile.js` | Blockly workspace JSON (single start stack) → program v1 |
 | `static/js/motionlab/view.js` | meter↔pixel transform; `view.floorPx` is the floor row |
-| `static/js/motionlab/blocks.js` | Blockly block JSON + toolbox generated from `BLOCK_TYPES`/`OPS`/`LIMITS`; `uniqueBodyId` |
+| `static/js/motionlab/blocks.js` | Blockly block JSON generated from `BLOCK_TYPES`/`OPS`/`LIMITS`; the `TRAY` chip list, `hueToHex`, `uniqueBodyId` |
 | `static/js/motionlab/renderer.js` | `drawScene(ctx, snapshot, view)`: grid, floor at `view.floorPx`, bodies, velocity arrows, labels |
 | `static/js/motionlab/playback.js` | `createPlayback({step, onFrame})`: fixed 1/120 s steps driven by `requestAnimationFrame` time |
 | `static/js/motionlab/files.js` | project envelope v1: save/open, validation, `FileFormatError` codes (see ARCHITECTURE.md) |
 | `static/js/motionlab/index.js` | public re-exports (also `programToWorkspace`) |
 | `static/js/lab.js` | page glue: Blockly ↔ compiler ↔ engine ↔ canvas, files, autosave. No logic worth unit-testing lives here |
-| `templates/lab.html`, `static/css/lab.css` | the block lab page |
+| `templates/lab.html`, `static/css/lab.css` | the block lab shell: top bar, Code Area, Simulation Output, Code Blocks tray |
+| `docs/baseline/` | baseline screenshots (1440, 768, 375 px wide) and layout measurements for the design pass |
 | `fixtures/ball-and-box.{program,workspace,expected}.json` | canonical fixture (the workspace is what Example loads) |
 | `fixtures/ball-and-box.snapshots.json`, `scripts/record-fixture.js` | real snapshots recorded headlessly (setup → impact → rest), and the recorder |
-| `tests/{contract,engine,integrator,contacts,simulation,project-files,compile,view,frontend}.test.js`, `tests/helpers.js` | 124 Node tests |
+| `fixtures/ball-and-box.editor.{workspace,program}.json` | a stack authored in the real editor (Blockly-generated ids, one disconnected block) and the exact program it must compile to |
+| `static/js/motionlab/outline.js` | text model of the Code Area for the keyboard stack list: stack in order, loose stacks, unit-labelled summaries |
+| `tests/{contract,engine,integrator,contacts,simulation,project-files,compile,view,frontend,outline,editor-fixture}.test.js`, `tests/helpers.js` | 137 Node tests |
 | `tests/test_routes.py` | 6 Python tests: routes are read-only GETs, writes get 405, the route table matches ARCHITECTURE.md |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
@@ -82,13 +85,38 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 - Blockly **12.3.1** from `https://cdn.jsdelivr.net/npm/blockly@12.3.1/blockly.min.js` (global `Blockly`, English
   messages included; media from the same version's `/media/`). Version pinned by `BLOCKLY_VERSION` in `app.py`.
   Needs network; without it the page says so and disables its buttons.
-- Toolbox: Start, Bodies (circle, box), World (gravity), Motion (velocity, force). Only one start block can exist
-  (`maxInstances`); the compiler also reports `MULTIPLE_START_BLOCKS` for loaded files.
+- **Layout (the team sketch):** a top bar with **Files** (Example, New, Open…) and **Download** (Save project, Export
+  program); **A. Code Area** (narrow, left: the Blockly editor); **B. Simulation Output** (larger, right: canvas, then
+  Run, Pause, Reset and Step, then status, problems and the body readout); **C. Code Blocks** tray (full width,
+  bottom). Below 960 px it becomes one column: Output, Code Area, tray. Baseline captures and measurements:
+  [baseline/README.md](baseline/README.md).
+- **Code Blocks tray** replaces Blockly's toolbox, because a toolbox is drawn inside the editor and can't span the
+  page. Chips come from `TRAY` in `blocks.js` (Start, Bodies, World, Motion) and are coloured like their blocks.
+  Drag a chip into the Code Area to place the block at the drop point, or click it (Enter/Space) to append the block
+  to the end of the start stack. Only one start block can exist: its chip is unavailable while one is present
+  (`maxInstances` also blocks duplicating it). The compiler still reports `MULTIPLE_START_BLOCKS` for loaded files.
+- **Playback:** Run (reads "Resume" when paused mid-run; disabled while running, so there is only one animation
+  loop), Pause (enabled only while running), Reset (back to tick 0), Step (one tick).
+- **Editor: Blockly**, with our HTML tray and a stack list (the decision and reasons are in
+  [ARCHITECTURE.md](ARCHITECTURE.md#editor-decision-blockly-with-an-html-tray-and-a-stack-list)). The blocks are
+  **When simulation starts**, **Create Ball**, **Create Box**, **Set Gravity**, **Set Initial Velocity** and
+  **Apply Force**, with units on every number, an `id` field for objects, and restitution (0–1) and static inputs
+  on the bodies.
+- **Stack list** (under the editor, collapsible): the connected stack in run order with unit-labelled summaries.
+  Each row has a select button and ↑ ↓ ✕ buttons; loose stacks are listed under "Not connected: these blocks don't
+  run", with an Attach button. After a move, focus returns to the same button, so you can press Enter repeatedly.
+  Shortcuts on the selected block: Alt+↑ / Alt+↓ move it, Delete/Backspace removes it (Blockly's own), and
+  Ctrl/Cmd+Z undoes.
+- **Disconnected blocks** (not under the start block) never run. They are drawn faded with a dashed red outline and
+  a warning icon, listed as an amber `DISCONNECTED_BLOCK` under Problems and in the stack list's "Not connected"
+  section, and counted in the status line. They don't block Run.
 - Every non-UI change recompiles after 120 ms. Errors show as warning icons on blocks and in the list under the
   canvas; clicking an error centers and selects its block. Run/Step/Reset/Export are disabled while there are errors.
 - A body block dragged in or pasted with a used name is renamed (`ball` → `ball2`) so it doesn't start as an error.
-- Run/Pause plays in real time (120 ticks per second; at most 12 ticks per frame, so a background tab doesn't burst).
-  Step runs one tick. Reset goes back to tick 0. Clock and per-body readout (x, y, vx, vy) under the canvas.
+- Playback runs in real time: 120 ticks per second, at most 12 per frame, so a background tab doesn't burst. The
+  clock and per-body readout (x, y, vx, vy with units) sit in the Output panel.
+- Accessibility: a skip link to the Code Area, a visible `:focus-visible` outline on every control, chip and
+  clickable problem, problems you can focus and open with Enter, and a live status line.
 - Camera: fitted to the initial scene; it zooms out when a body leaves the view (e.g. the ball rolling away).
 - Example loads `fixtures/ball-and-box.workspace.json`. Clear leaves only the start block. Open… accepts a project
   file (`.motionlab.json`, envelope v1) or a bare program JSON (converted to blocks). Save writes
@@ -113,6 +141,9 @@ python3 -m venv .venv
 
 Node ≥ 20 is required for tests. There is nothing to `npm install`.
 
+**Frontend entry point:** `GET /` renders `templates/lab.html`, which loads Blockly 12.3.1 from the CDN and then the
+ES module `static/js/lab.js` (it imports `static/js/motionlab/*`). There is no build step.
+
 Run, then open http://127.0.0.1:5050/ (block lab) or http://127.0.0.1:5050/mini (projectile mini). Restart it
 after changing templates: with debug off, Flask caches templates.
 
@@ -130,6 +161,13 @@ Server route tests (Python, uses the venv):
 
 ```bash
 npm run test:server
+```
+
+Editor tests only (the editor-authored fixture compiles to its expected program, disconnected blocks are flagged,
+no JavaScript is generated, plus the stack-list model):
+
+```bash
+node --test tests/editor-fixture.test.js tests/outline.test.js
 ```
 
 Project file tests only (envelope round-trips and every import error code):
@@ -210,6 +248,19 @@ jsDelivr CDN.
     on load, so such a file can load slightly different from its JSON. Saved workspace files are exact.
 
 ## Known failures / open items
+
+- Editor tests: no failing cases (137/137 Node + 6/6 Python, 2026-11-27). Mutation-checked: replacing block ids with
+  positions, and dropping the disconnected warnings, each fail the editor-fixture tests. Browser-checked on a fresh
+  server (Blockly 12.3.1), through the real event path:
+  - Stack-list ↓ and a real Enter on the focused button both moved Set Gravity down, with focus kept on the button.
+  - Alt+↑ on the selected Create Ball moved it up, and the compiled program followed the visible order.
+  - The Delete key removed a block and closed the gap; undo brought it back; ✕ in the list removed another.
+  - A chip dropped loose was flagged (dashed class, warning icon, amber problem, "Not connected" row, status count)
+    while Run stayed enabled. Attach moved it to the end of the stack and cleared every flag.
+  - A real click on the ball's mass field, then typing 2.5 and Enter, changed the compiled mass to 2.5.
+  - The editor fixture opened through Open, and Blockly re-saved it byte-for-byte.
+- The baseline screenshots in `docs/baseline/` were taken before the blocks were renamed (they show "when experiment
+  starts", "create circle", "bounce"). Layout and regions are unchanged.
 
 - Project file tests: no failing cases (124/124 Node + 6/6 Python, 2026-11-27). Mutation-checked: accepting unknown
   block types, counting characters instead of UTF-8 bytes for the size limit, and accepting newer format versions

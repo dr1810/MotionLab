@@ -4,17 +4,18 @@
 import { FLOOR_Y } from './contract.js';
 
 export const THEME = Object.freeze({
-  background: '#faf9fd',
-  grid: '#eee8f5',
-  gridLabel: '#a99cbb',
-  floor: '#e9e2f3',
-  floorLine: '#8a7a9c',
-  dynamic: '#7953cf',
-  dynamicStroke: '#5b3aa8',
-  static: '#b9b0c6',
-  staticStroke: '#8a7a9c',
-  label: '#34294d',
-  velocity: '#e0702b',
+  // Matches the block lab's "lab notebook" palette (static/css/lab.css).
+  background: '#fffdf8',
+  grid: '#ece6d6',
+  gridLabel: '#8a8f9c',
+  floor: '#efe9da',
+  floorLine: '#545b6e',
+  dynamic: '#0f766e',
+  dynamicStroke: '#0b5b55',
+  static: '#bdb6a6',
+  staticStroke: '#7d7668',
+  label: '#1f2638',
+  velocity: '#d97706',
 });
 
 /** Grid spacing in meters so lines are at least ~28 px apart. */

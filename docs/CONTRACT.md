@@ -13,10 +13,11 @@ All modules are ES modules with no dependencies. They run unchanged in Node ≥ 
 | `static/js/motionlab/contract.js` | `CONTRACT_VERSION` (1), `PROGRAM_VERSION` (1), `DT` (1/120), `FLOOR_Y` (0), `DEFAULT_GRAVITY` ({x: 0, y: -9.81}), `LIMITS`, `OPS`, `ERROR_CODES`, `makeError(code, message, blockId?)`, `ProgramError`, `validateProgram(program)` |
 | `static/js/motionlab/engine.js` | `createSimulation(program)`, `REST_SPEED` (0.2 m/s), `SOLVER_ITERATIONS` (8), `POSITION_ITERATIONS` (4) |
 | `static/js/motionlab/collision.js` | `contactBetween(a, b)`, `floorContact(b)`, `halfExtents(b)`, `maxSafeRelativeSpeed(a, b)` (pure, on the engine's internal body records) |
-| `static/js/motionlab/compile.js` | `compileWorkspace(workspaceJson)`, `BLOCK_TYPES`, `START_BLOCK_TYPE` (`"motionlab_start"`) |
+| `static/js/motionlab/compile.js` | `compileWorkspace(workspaceJson)`, `BLOCK_TYPES`, `BLOCK_LABELS`, `START_BLOCK_TYPE` (`"motionlab_start"`) |
 | `static/js/motionlab/view.js` | `createView({width, height, scale, worldLeft?, floorOffset?})`, `fitView(snapshot, {width, height, padding?, floorOffset?, minScale?, maxScale?})` |
 | `static/js/motionlab/compile.js` (also) | `programToWorkspace(program)`: the inverse, for Example/Open |
-| `static/js/motionlab/blocks.js` | `BLOCK_DEFINITIONS`, `TOOLBOX`, `DEFAULTS`, `MAX_INSTANCES`, `BODY_BLOCK_TYPES`, `defineBlocks(Blockly)`, `uniqueBodyId(taken, base)` |
+| `static/js/motionlab/outline.js` | `outlineWorkspace(workspaceJson)` → `{ stack, loose }`, `describeBlock(blockJson)`: the text model behind the stack list |
+| `static/js/motionlab/blocks.js` | `BLOCK_DEFINITIONS`, `TRAY`, `TRAY_DRAG_TYPE`, `hueToHex(hue)`, `DEFAULTS`, `MAX_INSTANCES`, `BODY_BLOCK_TYPES`, `defineBlocks(Blockly)`, `uniqueBodyId(taken, base)` |
 | `static/js/motionlab/renderer.js` | `drawScene(ctx, snapshot, view, {velocities?, labels?, theme?})`, `gridStep(scale)`, `THEME` |
 | `static/js/motionlab/playback.js` | `createPlayback({step, onFrame?, dt?, maxStepsPerFrame? = 12, maxFrameGap? = 0.1})` → `{running, start(now), stop(), frame(now)}` |
 | `static/js/motionlab/files.js` | `createProjectEnvelope(workspace, program?)`, `serializeProjectFile(workspace, program?)`, `serializeProgram(program)`, `parseMotionLabFile(text)`, `validateWorkspace(workspace)`, `checkFileSize(bytes)`, `byteLength(text)`, `FileFormatError` (`.code`), `FILE_ERROR_CODES`, `FILE_FORMAT`, `LEGACY_FILE_FORMATS`, `FILE_FORMAT_VERSION`, `MAX_FILE_BYTES`, `MAX_PROJECT_BLOCKS`, `PROJECT_FILENAME`, `PROGRAM_FILENAME` |
@@ -129,6 +130,7 @@ sets the starting value and the force adds its one-tick impulse on top.
 | `NO_START_BLOCK` | document | no start block (an empty workspace `{}` included) |
 | `MULTIPLE_START_BLOCKS` | each start block | more than one start block (one error per start block, with its id) |
 | `UNKNOWN_BLOCK_TYPE` | block | a block in the start stack that is not a MotionLab command block |
+| `DISCONNECTED_BLOCK` | **warning**, on the top block of a loose stack | a stack that is not snapped under the start block. Returned in `warnings`, never in `errors`; it does not change `ok` or the program |
 | `INVALID_PROGRAM` | thrown | `ProgramError.code` from `createSimulation` |
 
 ## Simulation API
@@ -222,23 +224,30 @@ purpose. Those scenes are valid; they are just outside the solver's accuracy ran
 ## Blocks → program (compiler)
 
 `compileWorkspace(json)` takes the plain JSON from `Blockly.serialization.workspaces.save(workspace)` (no Blockly
-import) and returns `{ ok, program, errors }`.
+import) and returns `{ ok, program, errors, warnings }`.
 
-- There must be **exactly one** start block (`motionlab_start`). It emits no command. Only the stack connected below it
-  is serialized. Loose stacks are ignored without an error.
+- There must be **exactly one** start block (`motionlab_start`, shown as **When simulation starts**). It emits no
+  command. Only the stack connected below it is serialized.
+- Every other top-level stack is **disconnected**: it is not compiled, and it gets one `DISCONNECTED_BLOCK` warning
+  on its top block, which names it and the number of blocks under it. Warnings are reported even with errors, and
+  even with no start block.
 - `program` is `null` only for `INVALID_WORKSPACE`, `NO_START_BLOCK` and `MULTIPLE_START_BLOCKS`. Otherwise it is
   returned even when invalid, so the UI can export it and point errors at blocks.
 - An empty start stack compiles to the valid empty program.
 - Disabled blocks (`enabled: false`, or a non-empty `disabledReasons`) are skipped.
 - Checkbox `STATIC` accepts `true/false` or the legacy strings `"TRUE"/"FALSE"`.
 
-| Blockly type | op | fields |
-|---|---|---|
-| `motionlab_create_circle` | `createCircle` | `ID X Y RADIUS MASS RESTITUTION STATIC` |
-| `motionlab_create_box` | `createBox` | `ID X Y WIDTH HEIGHT MASS RESTITUTION STATIC` |
-| `motionlab_set_gravity` | `setGravity` | `X Y` |
-| `motionlab_set_velocity` | `setVelocity` | `ID VX VY` |
-| `motionlab_apply_force` | `applyForce` | `ID FX FY` |
+| Blockly type | Shown as (`BLOCK_LABELS`) | op | fields (units on the block) |
+|---|---|---|---|
+| `motionlab_start` | When simulation starts | none | none |
+| `motionlab_create_circle` | Create Ball | `createCircle` | `ID` (id), `X Y` (m), `RADIUS` (m), `MASS` (kg), `RESTITUTION` (0–1), `STATIC` (checkbox) |
+| `motionlab_create_box` | Create Box | `createBox` | `ID`, `X Y` (m), `WIDTH HEIGHT` (m), `MASS` (kg), `RESTITUTION`, `STATIC` |
+| `motionlab_set_gravity` | Set Gravity | `setGravity` | `X Y` (m/s²) |
+| `motionlab_set_velocity` | Set Initial Velocity | `setVelocity` | `ID`, `VX VY` (m/s) |
+| `motionlab_apply_force` | Apply Force | `applyForce` | `ID`, `FX FY` (N, first tick) |
+
+Blocks are only ever serialized to this JSON. No JavaScript is generated from blocks or evaluated
+(`tests/editor-fixture.test.js` checks the source for `eval`, `Function` and Blockly generators).
 
 ## Files
 
@@ -254,7 +263,9 @@ exactly program v1.
 | File | Content |
 |---|---|
 | `fixtures/ball-and-box.program.json` | program v1: gravity −9.81; box `box` 1×1 m, 2 kg, e 0.2 at (2, 0.5) resting on the floor; ball `ball` r 0.25 m, 1 kg, e 0.6 at (0, 3); ball velocity (1.5, 0); force (120, 0) N on the ball |
-| `fixtures/ball-and-box.workspace.json` | Blockly workspace JSON that compiles to exactly that program (block ids = blockIds, start block `blk-start`) |
+| `fixtures/ball-and-box.workspace.json` | hand-written Blockly workspace JSON that compiles to exactly that program (block ids = blockIds, start block `blk-start`). Example loads this |
+| `fixtures/ball-and-box.editor.workspace.json` | **editor-authored**: built in the real block lab on 2026-11-27 (New, five tray-chip clicks, fields set, plus one disconnected Set Gravity with y = −1.62 dropped beside the stack) and saved with `Blockly.serialization.workspaces.save`. Block ids are Blockly-generated |
+| `fixtures/ball-and-box.editor.program.json` | the expected program for it: the canonical program with each `blockId` replaced by the editor block id in stack order. `compileWorkspace(editor workspace).program` must equal it exactly, with one `DISCONNECTED_BLOCK` warning for the moon-gravity block |
 | `fixtures/ball-and-box.expected.json` | `initial`, `afterTick1`, `afterTick2` snapshots, tolerance 1e-9, with derivations |
 | `fixtures/ball-and-box.snapshots.json` | **recorded** real engine snapshots at named events from a headless 20 s run, plus a 0.1 s ball trajectory for the first 4 s. Regenerate with `npm run fixture:record`; compared exactly by `tests/simulation.test.js` and `npm run fixture:check` |
 

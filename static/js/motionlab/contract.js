@@ -68,6 +68,8 @@ export const ERROR_CODES = Object.freeze({
   NO_START_BLOCK: 'NO_START_BLOCK',
   MULTIPLE_START_BLOCKS: 'MULTIPLE_START_BLOCKS',
   UNKNOWN_BLOCK_TYPE: 'UNKNOWN_BLOCK_TYPE',
+  // Workspace compiler warning (never blocks running)
+  DISCONNECTED_BLOCK: 'DISCONNECTED_BLOCK',
   // Thrown by createSimulation (ProgramError.code)
   INVALID_PROGRAM: 'INVALID_PROGRAM',
 });

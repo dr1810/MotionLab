@@ -9,7 +9,7 @@ cd /Users/dharunr/Desktop/MotionLab
 .venv/bin/python app.py
 ```
 
-- http://127.0.0.1:5050/ is the **block lab**. Snap blocks under *when experiment starts*, then Run, Step or Reset. Example, Open, Save and Export are in the header. It uses Blockly 12.3.1 from the jsDelivr CDN, so it needs network access.
+- http://127.0.0.1:5050/ is the **block lab**: Files and Download along the top, the Code Area (blocks) on the left, the Simulation Output with Run, Pause and Reset on the right, and the Code Blocks tray along the bottom. Drag or click blocks from the tray, snap them under *When simulation starts*, then press Run. It uses Blockly 12.3.1 from the jsDelivr CDN, so it needs network access.
 - http://127.0.0.1:5050/mini is the **projectile mini** demo. Change angle and speed, launch, pause/resume, or reset, and aim for the target at 30 meters. Changing a setting restarts the experiment. It uses constant gravity and no air resistance.
 - The old address `/lab` redirects to `/`.
 

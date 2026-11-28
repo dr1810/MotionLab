@@ -28,29 +28,62 @@ function fieldValue(key, raw) {
   return raw;
 }
 
+/** Human name of a block type, as shown on the block and in the tray. */
+export const BLOCK_LABELS = Object.freeze({
+  [START_BLOCK_TYPE]: 'When simulation starts',
+  motionlab_create_circle: 'Create Ball',
+  motionlab_create_box: 'Create Box',
+  motionlab_set_gravity: 'Set Gravity',
+  motionlab_set_velocity: 'Set Initial Velocity',
+  motionlab_apply_force: 'Apply Force',
+});
+
+const chainLength = (head) => {
+  let n = 0;
+  for (let b = head; isPlainObject(b); b = b.next?.block) n += 1;
+  return n;
+};
+
+/**
+ * Warnings for loose stacks: top-level blocks other than the start block (and everything snapped under them) are not
+ * connected to "When simulation starts", so they are not compiled. One warning per loose stack, on its top block.
+ */
+function disconnectedWarnings(top) {
+  return top
+    .filter((b) => isPlainObject(b) && b.type !== START_BLOCK_TYPE)
+    .map((head) => {
+      const below = chainLength(head) - 1;
+      const name = BLOCK_LABELS[head.type] ?? head.type;
+      const what = below ? `"${name}" and the ${below} block${below === 1 ? '' : 's'} under it are` : `"${name}" is`;
+      return makeError(ERROR_CODES.DISCONNECTED_BLOCK, `${what} not connected to "When simulation starts", so ${below ? 'they do' : 'it does'} not run. Snap ${below ? 'them' : 'it'} into the stack (or use Attach in the stack list).`, head.id);
+    });
+}
+
 /**
  * @param {object} workspace  Blockly JSON serialization ({} for an empty workspace)
- * @returns {{ok: boolean, program: object|null, errors: Array<{code, message, blockId}>}}
+ * @returns {{ok: boolean, program: object|null, errors: Array<{code, message, blockId}>, warnings: Array<{code, message, blockId}>}}
  *   program is null only when there is no single start block or the input is not a workspace.
  *   Otherwise program is returned even when invalid, so its errors can be shown next to blocks.
+ *   warnings (DISCONNECTED_BLOCK) never affect ok or the program.
  */
 export function compileWorkspace(workspace) {
   const E = ERROR_CODES;
   if (!isPlainObject(workspace)) {
-    return { ok: false, program: null, errors: [makeError(E.INVALID_WORKSPACE, 'Workspace must be a JSON object.')] };
+    return { ok: false, program: null, errors: [makeError(E.INVALID_WORKSPACE, 'Workspace must be a JSON object.')], warnings: [] };
   }
   const top = workspace.blocks === undefined ? [] : workspace.blocks?.blocks;
   if (!Array.isArray(top)) {
-    return { ok: false, program: null, errors: [makeError(E.INVALID_WORKSPACE, 'Workspace "blocks.blocks" must be an array.')] };
+    return { ok: false, program: null, errors: [makeError(E.INVALID_WORKSPACE, 'Workspace "blocks.blocks" must be an array.')], warnings: [] };
   }
 
   const starts = top.filter((b) => isPlainObject(b) && b.type === START_BLOCK_TYPE);
+  const warnings = disconnectedWarnings(top);
   if (starts.length === 0) {
-    return { ok: false, program: null, errors: [makeError(E.NO_START_BLOCK, 'Add a "when experiment starts" block.')] };
+    return { ok: false, program: null, errors: [makeError(E.NO_START_BLOCK, 'Add a "When simulation starts" block from the Code Blocks tray.')], warnings };
   }
   if (starts.length > 1) {
-    const errors = starts.map((b) => makeError(E.MULTIPLE_START_BLOCKS, 'Only one "when experiment starts" block is allowed.', b.id));
-    return { ok: false, program: null, errors };
+    const errors = starts.map((b) => makeError(E.MULTIPLE_START_BLOCKS, 'Only one "When simulation starts" block is allowed. Delete the extra one.', b.id));
+    return { ok: false, program: null, errors, warnings };
   }
 
   const errors = [];
@@ -75,7 +108,7 @@ export function compileWorkspace(workspace) {
 
   const program = { version: PROGRAM_VERSION, commands };
   errors.push(...validateProgram(program).errors);
-  return { ok: errors.length === 0, program, errors };
+  return { ok: errors.length === 0, program, errors, warnings };
 }
 
 const OP_TO_TYPE = Object.freeze(Object.fromEntries(Object.entries(BLOCK_TYPES).map(([type, t]) => [t.op, type])));

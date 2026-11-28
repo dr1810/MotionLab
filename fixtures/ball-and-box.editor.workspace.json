@@ -1,0 +1,86 @@
+{
+  "blocks": {
+    "languageVersion": 0,
+    "blocks": [
+      {
+        "type": "motionlab_start",
+        "id": "start",
+        "x": 36,
+        "y": -2,
+        "next": {
+          "block": {
+            "type": "motionlab_set_gravity",
+            "id": "Hq(01w@y{rG91+(/CU3#",
+            "fields": {
+              "X": 0,
+              "Y": -9.81
+            },
+            "next": {
+              "block": {
+                "type": "motionlab_create_box",
+                "id": "cEw+!U9F=1G]{ws-zs4W",
+                "fields": {
+                  "ID": "box",
+                  "X": 2,
+                  "Y": 0.5,
+                  "WIDTH": 1,
+                  "HEIGHT": 1,
+                  "MASS": 2,
+                  "RESTITUTION": 0.2,
+                  "STATIC": false
+                },
+                "next": {
+                  "block": {
+                    "type": "motionlab_create_circle",
+                    "id": "@Ee(rWyVT8zDH*+pzBs!",
+                    "fields": {
+                      "ID": "ball",
+                      "X": 0,
+                      "Y": 3,
+                      "RADIUS": 0.25,
+                      "MASS": 1,
+                      "RESTITUTION": 0.6,
+                      "STATIC": false
+                    },
+                    "next": {
+                      "block": {
+                        "type": "motionlab_set_velocity",
+                        "id": "!k3.A,,B/KCgwa.YYsv~",
+                        "fields": {
+                          "ID": "ball",
+                          "VX": 1.5,
+                          "VY": 0
+                        },
+                        "next": {
+                          "block": {
+                            "type": "motionlab_apply_force",
+                            "id": "FPz]5v5u?)PA*GErWE(v",
+                            "fields": {
+                              "ID": "ball",
+                              "FX": 120,
+                              "FY": 0
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "motionlab_set_gravity",
+        "id": "==[~)J~XE+I;=8KD%zAr",
+        "x": 246,
+        "y": 31,
+        "fields": {
+          "X": 0,
+          "Y": -1.62
+        }
+      }
+    ]
+  }
+}

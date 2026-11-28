@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileWorkspace, BLOCK_TYPES, START_BLOCK_TYPE } from '../static/js/motionlab/compile.js';
+import { compileWorkspace, BLOCK_LABELS, BLOCK_TYPES, START_BLOCK_TYPE } from '../static/js/motionlab/compile.js';
 import { OPS, ERROR_CODES as E } from '../static/js/motionlab/contract.js';
 import { createSimulation } from '../static/js/motionlab/engine.js';
 import { program, workspace, expected } from './helpers.js';
@@ -24,12 +24,12 @@ test('block types cover every op and every field', () => {
 
 test('canonical workspace compiles to the canonical program and simulates', () => {
   const r = compileWorkspace(workspace());
-  assert.deepEqual(r, { ok: true, program: program(), errors: [] });
+  assert.deepEqual(r, { ok: true, program: program(), errors: [], warnings: [] });
   assert.deepEqual(createSimulation(r.program).snapshot(), expected().initial);
 });
 
 test('empty start stack compiles to the valid empty program', () => {
-  assert.deepEqual(compileWorkspace(ws(start())), { ok: true, program: { version: 1, commands: [] }, errors: [] });
+  assert.deepEqual(compileWorkspace(ws(start())), { ok: true, program: { version: 1, commands: [] }, errors: [], warnings: [] });
 });
 
 test('missing start block (including an empty workspace) is a document-level error', () => {
@@ -54,10 +54,26 @@ test('non-workspace input', () => {
   }
 });
 
-test('only the connected start stack is compiled; loose stacks are ignored', () => {
-  const r = compileWorkspace(ws(chain(start(), gravity('g1')), chain(gravity('loose1'), gravity('loose2'))));
+test('only the connected start stack is compiled; loose stacks are flagged, not run', () => {
+  const r = compileWorkspace(ws(chain(start(), gravity('g1')), chain(gravity('loose1'), gravity('loose2')), gravity('alone')));
   assert.deepEqual(r.program.commands.map((c) => c.blockId), ['g1']);
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, true, 'warnings do not block running');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings.map((w) => [w.code, w.blockId]), [[E.DISCONNECTED_BLOCK, 'loose1'], [E.DISCONNECTED_BLOCK, 'alone']]);
+  assert.match(r.warnings[0].message, /"Set Gravity" and the 1 block under it are not connected to "When simulation starts", so they do not run/);
+  assert.match(r.warnings[1].message, /"Set Gravity" is not connected .* so it does not run\. Snap it into the stack/);
+});
+
+test('disconnected warnings are reported even when there is no start block', () => {
+  const r = compileWorkspace(ws(gravity('g')));
+  assert.deepEqual(r.errors.map((e) => e.code), [E.NO_START_BLOCK]);
+  assert.deepEqual(r.warnings.map((w) => w.blockId), ['g']);
+  assert.deepEqual(compileWorkspace({}).warnings, []);
+  assert.deepEqual(compileWorkspace(null).warnings, []);
+});
+
+test('block labels match the brief and the blocks', () => {
+  assert.deepEqual(Object.values(BLOCK_LABELS), ['When simulation starts', 'Create Ball', 'Create Box', 'Set Gravity', 'Set Initial Velocity', 'Apply Force']);
 });
 
 test('disabled blocks are skipped (old and new Blockly formats)', () => {

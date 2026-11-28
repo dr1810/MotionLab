@@ -8,38 +8,88 @@
 {% endblock %}
 
 {% block content %}
-<header class="lab-header">
-    <div>
-        <h1>MotionLab block lab</h1>
-        <p>Snap blocks under <strong>when experiment starts</strong>, then press Run. <a href="{{ url_for('mini') }}">Projectile mini</a></p>
-    </div>
-    <div class="file-actions" role="group" aria-label="File">
-        <button type="button" class="secondary" id="example">Example</button>
-        <button type="button" class="secondary" id="clear">Clear</button>
-        <button type="button" class="secondary" id="open">Open…</button>
-        <button type="button" class="secondary" id="save">Save</button>
-        <button type="button" class="secondary" id="export">Export program</button>
-        <input type="file" id="fileInput" accept=".json,application/json" hidden>
-    </div>
-</header>
-
-<div class="lab-grid">
-    <div id="blocklyDiv" class="blockly-host" aria-label="Block editor"
-         data-blockly-version="{{ blockly_version }}"></div>
-    <section class="stage" aria-label="Simulation">
-        <canvas id="stage" aria-label="Physics simulation"></canvas>
-        <div class="controls" role="group" aria-label="Playback">
-            <button type="button" id="run">▶ Run</button>
-            <button type="button" class="secondary" id="step" title="Advance one 1/120 s tick">Step</button>
-            <button type="button" class="secondary" id="reset">↺ Reset</button>
-            <span id="clock" class="clock">tick 0 · 0.000 s</span>
+<a class="skip-link" href="#blocklyDiv">Skip to the Code Area</a>
+<div class="app">
+    <!-- Region 1 (sketch: top bar): Files and Download -->
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <div>
+                <h1>MotionLab</h1>
+                <p>Build an experiment from blocks, then watch it move.</p>
+            </div>
         </div>
-        <div id="status" class="status" role="status">Loading…</div>
-        <ul id="errors" class="errors" aria-label="Problems"></ul>
-        <table class="readout" aria-label="Bodies">
-            <thead><tr><th>body</th><th>x</th><th>y</th><th>vx</th><th>vy</th></tr></thead>
-            <tbody id="bodies"></tbody>
-        </table>
+        <nav class="filebar" aria-label="Files and download">
+            <div class="toolgroup" role="group" aria-labelledby="files-label">
+                <span class="group-label" id="files-label">Files</span>
+                <button type="button" class="tool" id="example">Example</button>
+                <button type="button" class="tool" id="clear">New</button>
+                <button type="button" class="tool" id="open">Open…</button>
+                <input type="file" id="fileInput" accept=".json,application/json" hidden>
+            </div>
+            <div class="toolgroup" role="group" aria-labelledby="download-label">
+                <span class="group-label" id="download-label">Download</span>
+                <button type="button" class="tool" id="save">Save project</button>
+                <button type="button" class="tool" id="export">Export program</button>
+            </div>
+        </nav>
+        <a class="minilink" href="{{ url_for('mini') }}">Projectile mini</a>
+    </header>
+
+    <main class="workbench">
+        <!-- Region 2 (sketch: narrow left): Code Area -->
+        <section class="panel code-area" id="codeArea" aria-labelledby="code-title">
+            <header class="panel-head">
+                <h2 id="code-title"><span class="region-tag" aria-hidden="true">A</span>Code Area</h2>
+                <p>Blocks under <strong>When simulation starts</strong> run from top to bottom.</p>
+            </header>
+            <div id="blocklyDiv" class="blockly-host" tabindex="-1" aria-label="Code Area block editor"
+                 data-blockly-version="{{ blockly_version }}"></div>
+            <p class="drop-hint" aria-hidden="true">Drop the block here</p>
+            <details class="stack-outline" id="stackOutline" open>
+                <summary>Stack list <span class="outline-count" id="stackCount"></span>
+                    <span class="outline-keys">Alt+↑/↓ moves the selected block · Delete removes it</span></summary>
+                <ol class="stack-list" id="stackList" aria-label="Connected stack, in run order"></ol>
+                <div class="loose" id="looseWrap" hidden>
+                    <h3 id="loose-title">Not connected: these blocks don't run</h3>
+                    <ul class="stack-list loose-list" id="looseList" aria-labelledby="loose-title"></ul>
+                </div>
+            </details>
+        </section>
+
+        <!-- Region 3 (sketch: larger right): Simulation Output -->
+        <section class="panel output" aria-labelledby="output-title">
+            <header class="panel-head">
+                <h2 id="output-title"><span class="region-tag" aria-hidden="true">B</span>Simulation Output</h2>
+                <span id="clock" class="clock" aria-label="Simulation time">tick 0 · 0.000 s</span>
+            </header>
+            <div class="stage-wrap">
+                <canvas id="stage" role="img" aria-label="Simulation: bodies drawn above the floor, with velocity arrows"></canvas>
+            </div>
+            <div class="controls" role="group" aria-label="Playback">
+                <button type="button" class="play run" id="run"><span aria-hidden="true">▶</span> Run</button>
+                <button type="button" class="play pause" id="pause"><span aria-hidden="true">❚❚</span> Pause</button>
+                <button type="button" class="play reset" id="reset"><span aria-hidden="true">↺</span> Reset</button>
+                <button type="button" class="play step" id="step" title="Advance one tick (1/120 s)">Step</button>
+            </div>
+            <div class="info">
+                <div id="status" class="status" role="status" aria-live="polite">Loading…</div>
+                <ul id="errors" class="errors" aria-label="Problems"></ul>
+                <table class="readout" aria-label="Bodies">
+                    <thead><tr><th scope="col">body</th><th scope="col">x m</th><th scope="col">y m</th><th scope="col">vx m/s</th><th scope="col">vy m/s</th></tr></thead>
+                    <tbody id="bodies"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- Region 4 (sketch: full-width bottom): Code Blocks tray -->
+    <section class="panel tray" aria-labelledby="tray-title">
+        <header class="panel-head">
+            <h2 id="tray-title"><span class="region-tag" aria-hidden="true">C</span>Code Blocks</h2>
+            <p id="tray-help">Drag a block into the Code Area, or select it and press Enter to add it to the end of the stack.</p>
+        </header>
+        <div id="tray" class="tray-groups"></div>
     </section>
 </div>
 {% endblock %}

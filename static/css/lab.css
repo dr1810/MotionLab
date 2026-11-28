@@ -1,28 +1,262 @@
-body.lab{max-width:1280px;margin:16px auto}
-.lab-header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
-.lab-header p{margin:0}
-.file-actions{display:flex;flex-wrap:wrap;gap:6px}
-.file-actions button,.controls button{padding:8px 12px}
-button:disabled{opacity:.45;cursor:not-allowed}
-.lab-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);background:white;border:1px solid #e5deef;border-radius:16px;overflow:hidden}
-.blockly-host{height:620px;min-width:0;border-right:1px solid #eee8f5}
-.stage{min-width:0;display:flex;flex-direction:column}
-.stage canvas{height:340px;border-bottom:1px solid #eee8f5}
-.controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:12px 16px}
-.clock{margin-left:auto;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:#80758e}
-.status{padding:0 16px;min-height:22px;font-size:13px;color:#7953cf}
-.status.error{color:#b4232c}
-.errors{list-style:none;margin:6px 0 0;padding:0 16px;font-size:13px}
-.errors li{padding:6px 8px;margin-bottom:4px;border-radius:8px;background:#fdf0f1;color:#7a1d24;cursor:default}
-.errors li[data-block-id]{cursor:pointer}
-.errors li[data-block-id]:hover{background:#fbe1e4}
-.errors code{font-size:11px;margin-right:6px;color:#b4232c}
-.readout{margin:8px 16px 16px;border-collapse:collapse;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:#5a4f6b}
-.readout th{text-align:right;font-weight:600;color:#8a7a9c;padding:2px 8px}
-.readout td{text-align:right;padding:2px 8px}
-.readout th:first-child,.readout td:first-child{text-align:left;padding-left:0}
-@media(max-width:860px){
-  .lab-grid{grid-template-columns:1fr}
-  .blockly-host{height:440px;border-right:0;border-bottom:1px solid #eee8f5}
-  .stage canvas{height:260px}
+/* MotionLab block lab shell. Layout follows the team sketch: Files/Download top bar, narrow Code Area (left),
+   larger Simulation Output (right), full-width Code Blocks tray (bottom). Visual theme: "lab notebook",
+   warm paper, ink text, graph-paper grid, teal for go, amber for pause. */
+
+:root {
+  --paper: #f7f4ec;
+  --paper-deep: #efe9da;
+  --panel: #fffdf8;
+  --ink: #1f2638;
+  --ink-soft: #545b6e;
+  --ink-faint: #8a8f9c;
+  --rule: #e2dccb;
+  --grid: rgba(31, 38, 56, 0.045);
+  --teal: #0f766e;
+  --teal-deep: #0b5b55;
+  --amber: #b45309;
+  --amber-soft: #fdf3e2;
+  --error: #b42318;
+  --error-soft: #fdeeec;
+  --focus: #2563eb;
+  --radius: 14px;
+  --shadow: 0 1px 0 rgba(31, 38, 56, 0.04), 0 6px 18px -10px rgba(31, 38, 56, 0.25);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Override the shared site style (style.css) for this full-screen app. */
+body.lab {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  color: var(--ink);
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+body.lab p { color: var(--ink-soft); margin: 0; }
+body.lab h1, body.lab h2 { margin: 0; }
+
+/* Focus: one visible style for every control, links, chips and problem items. */
+body.lab :focus { outline: none; }
+body.lab :focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.skip-link {
+  position: absolute; left: 12px; top: -48px; z-index: 10;
+  background: var(--ink); color: #fff; padding: 8px 12px; border-radius: 8px; text-decoration: none;
+}
+.skip-link:focus { top: 12px; }
+
+.app {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 660px;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+/* ---------- top bar: Files and Download ---------- */
+.topbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px;
+  padding: 10px 14px;
+  background: var(--ink); color: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+.brand-mark {
+  width: 34px; height: 34px; flex: none; border-radius: 10px;
+  background:
+    radial-gradient(circle at 34% 38%, #fff 0 5px, transparent 6px),
+    linear-gradient(135deg, var(--teal) 0 50%, #f59e0b 50% 100%);
+}
+.brand h1 { font-size: 18px; letter-spacing: 0.01em; }
+.brand p { color: #c8ccd8; font-size: 12.5px; }
+.filebar { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.toolgroup {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 4px 6px 4px 10px; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px;
+}
+.group-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #aeb4c4;
+  margin-right: 2px;
+}
+.tool {
+  font: inherit; font-size: 13.5px; color: #fff; cursor: pointer;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid transparent; border-radius: 9px; padding: 6px 11px;
+}
+.tool:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); }
+.topbar :focus-visible { outline-color: #93c5fd; }
+.minilink { color: #c8ccd8; font-size: 13px; }
+.minilink:hover { color: #fff; }
+
+/* ---------- panels ---------- */
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(300px, 2fr) minmax(0, 3fr); /* narrow Code Area, larger Output */
+  gap: 12px;
+  min-height: 0;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.panel-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px;
+  padding: 10px 14px 9px;
+  border-bottom: 1px solid var(--rule);
+  background: linear-gradient(var(--panel), #fbf8f0);
+}
+.panel-head h2 { font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.panel-head p { font-size: 12.5px; }
+.region-tag {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px;
+  background: var(--ink); color: #fff; font-size: 11px; font-weight: 700;
+}
+
+/* ---------- Code Area ---------- */
+.code-area { position: relative; }
+.blockly-host { flex: 1 1 auto; min-height: 280px; position: relative; }
+.drop-hint {
+  display: none; position: absolute; inset: 48px 10px 10px; pointer-events: none;
+  border: 2px dashed var(--teal); border-radius: 10px;
+  align-items: center; justify-content: center;
+  font-weight: 600; color: var(--teal-deep); background: rgba(15, 118, 110, 0.06);
+}
+body.dragging-block .code-area .drop-hint { display: flex; }
+.code-area.drop-over .drop-hint { background: rgba(15, 118, 110, 0.14); border-style: solid; }
+
+/* Stack list: the keyboard-accessible view of the Code Area (select, reorder, remove, attach). */
+.stack-outline { flex: none; max-height: 42%; overflow: auto; border-top: 1px solid var(--rule); background: #fbf8f0; font-size: 13px; }
+.stack-outline summary {
+  cursor: pointer; padding: 7px 14px; font-weight: 650; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+  position: sticky; top: 0; background: #fbf8f0; z-index: 1;
+}
+.outline-count { font-weight: 500; color: var(--ink-soft); }
+.outline-keys { font-weight: 400; font-size: 11.5px; color: var(--ink-faint); margin-left: auto; }
+.stack-list { list-style: none; margin: 0; padding: 0 8px 8px; }
+.stack-list li { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
+.stack-list li:hover { background: var(--paper); }
+.stack-list .pos { width: 1.6em; text-align: right; font: 11px var(--mono); color: var(--ink-faint); flex: none; }
+.stack-list .swatch { width: 8px; align-self: stretch; margin: 5px 0; border-radius: 3px; background: var(--chip, var(--ink-faint)); flex: none; }
+.stack-list .item {
+  flex: 1 1 auto; min-width: 0; text-align: left; font: inherit; font-size: 12.5px; color: var(--ink);
+  background: none; border: 0; padding: 5px 6px; cursor: pointer; border-radius: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stack-list .act {
+  flex: none; font: inherit; font-size: 12px; min-width: 28px; height: 26px; padding: 0 6px; cursor: pointer;
+  background: #fff; border: 1px solid var(--rule); border-radius: 7px; color: var(--ink-soft);
+}
+.stack-list .act:hover:not(:disabled) { background: var(--paper-deep); color: var(--ink); }
+.stack-list .act.attach { color: var(--teal-deep); border-color: #9fd3cd; }
+.stack-list .act.remove:hover:not(:disabled) { color: var(--error); border-color: #f1b8b1; }
+.loose { border-top: 1px dashed #e7b7b0; margin: 0 8px; }
+.loose h3 { font-size: 12px; margin: 8px 6px 4px; color: var(--error); }
+.loose-list { padding: 0 0 8px; }
+.loose-list .item { color: var(--ink-soft); }
+/* Disconnected blocks on the Blockly canvas: faded with a dashed red outline (also gets a warning icon). */
+.blocklySvg g.ml-disconnected { opacity: 0.6; }
+.blocklySvg g.ml-disconnected .blocklyPath { stroke: var(--error); stroke-width: 2px; stroke-dasharray: 6 4; }
+
+/* ---------- Simulation Output ---------- */
+.clock { margin-left: auto; font: 12px var(--mono); color: var(--ink-soft); }
+.stage-wrap { flex: 1 1 auto; min-height: 220px; position: relative; border-bottom: 1px solid var(--rule); }
+.stage-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; }
+.play {
+  font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+  border-radius: 10px; padding: 8px 14px; border: 1px solid var(--rule); background: #fff; color: var(--ink);
+}
+.play.run { background: var(--teal); border-color: var(--teal); color: #fff; }
+.play.run:hover:not(:disabled) { background: var(--teal-deep); }
+.play.pause { background: var(--amber-soft); border-color: #f3d19c; color: var(--amber); }
+.play.reset:hover:not(:disabled), .play.step:hover:not(:disabled) { background: var(--paper); }
+.play.step { margin-left: auto; font-weight: 500; color: var(--ink-soft); }
+button:disabled { opacity: 0.42; cursor: not-allowed; }
+.info { max-height: 34%; overflow: auto; padding: 0 14px 12px; }
+/* body.lab #status beats style.css's "#status { color: purple }" rule from the mini demo. */
+body.lab #status { min-height: 22px; font-size: 13px; color: var(--teal-deep); }
+body.lab #status.error { color: var(--error); }
+.errors { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
+.errors li { padding: 6px 9px; margin-bottom: 4px; border-radius: 8px; background: var(--error-soft); color: #7a1d16; }
+.errors li[data-block-id] { cursor: pointer; }
+.errors li[data-block-id]:hover { background: #fadcd8; }
+.errors code { font-size: 11px; margin-right: 6px; color: var(--error); }
+.errors li.warning { background: var(--amber-soft); color: #7a3e06; }
+.errors li.warning code { color: var(--amber); }
+.errors li.warning:hover { background: #fbe7c6; }
+.readout { margin-top: 8px; border-collapse: collapse; font: 12px var(--mono); color: var(--ink-soft); }
+.readout th { text-align: right; font-weight: 600; color: var(--ink-faint); padding: 2px 10px; }
+.readout td { text-align: right; padding: 2px 10px; }
+.readout th:first-child, .readout td:first-child { text-align: left; padding-left: 0; }
+
+/* ---------- Code Blocks tray ---------- */
+.tray .panel-head { background: linear-gradient(#fbf8f0, var(--paper-deep)); }
+.tray-groups {
+  display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 12px 14px 14px;
+  background: var(--paper-deep);
+}
+@media (min-width: 1200px) {
+  .tray-groups { flex-wrap: nowrap; overflow-x: auto; }  /* one row of groups on wide screens */
+}
+.tray-group { display: flex; flex-direction: column; gap: 6px; }
+.tray-group-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft);
+  display: flex; align-items: center; gap: 6px;
+}
+.tray-group-label::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--chip); }
+.tray-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+/* A chip looks like a block: coloured body with a "notch" tab on top. */
+.chip {
+  position: relative; text-align: left; cursor: grab; font: inherit;
+  display: grid; gap: 1px; width: 200px;
+  padding: 8px 10px 8px 12px; border: 0; border-radius: 4px 10px 10px 10px;
+  background: var(--chip); color: #fff;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.16), 0 2px 6px -3px rgba(0, 0, 0, 0.4);
+}
+.chip::before {
+  content: ""; position: absolute; top: -5px; left: 16px; width: 22px; height: 6px;
+  background: var(--chip); border-radius: 4px 4px 0 0;
+}
+.chip:hover:not([aria-disabled="true"]) { filter: brightness(1.08); transform: translateY(-1px); }
+.chip:active { cursor: grabbing; }
+.chip-label { font-weight: 650; font-size: 14px; }
+.chip-hint { font-size: 11.5px; opacity: 0.88; }
+.chip[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.4); }
+
+/* ---------- narrower layouts ---------- */
+@media (max-width: 960px) {
+  .app { height: auto; min-height: 0; }
+  .workbench { grid-template-columns: 1fr; }
+  .output { order: -1; }            /* see the result first, then edit, with the tray right under the editor */
+  .stage-wrap { min-height: 280px; }
+  .info { max-height: none; }
+  .blockly-host { min-height: 420px; }
+}
+@media (max-width: 560px) {
+  .app { padding: 8px; gap: 8px; }
+  .brand p { display: none; }
+  .filebar { width: 100%; }
+  .toolgroup { flex: 1 1 100%; }
+  .stage-wrap { min-height: 230px; }
+  .play { padding: 8px 11px; }
+  .play.step { margin-left: 0; }
+  .chip { width: auto; flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip:hover:not([aria-disabled="true"]) { transform: none; }
 }

@@ -1,4 +1,4 @@
-# MotionLab architecture: storage decision
+# MotionLab architecture: storage and editor decisions
 
 Decided 2026-11-27. Owner: Dharun. Applies to the prototype and Misora's refinement work.
 
@@ -117,3 +117,24 @@ Open also accepts a **bare program v1** (`{ "version": 1, "commands": [...] }`).
 - **Save** writes the envelope as `experiment.motionlab.json`.
 - **Export program** writes the bare program v1 as `experiment.program.json` (valid programs only).
 - Autosave (`localStorage`) stores the bare workspace JSON. It is a per-browser convenience, not a project file.
+
+## Editor decision: Blockly, with an HTML tray and a stack list
+
+Decided 2026-11-27. The options were Blockly (already in the stack, at 12.3.1) or custom draggable stacked blocks.
+**Blockly** was chosen:
+
+| Need (brief) | How it is met | Where |
+|---|---|---|
+| Drag blocks from the bottom tray into the Code Area | HTML **Code Blocks** tray. Blockly's own toolbox is drawn inside the editor, so it can't span the page under both panels as the sketch shows. A chip is dropped where you release it | `TRAY` in `blocks.js`, `addBlockFromTray` in `lab.js` |
+| Snap or insert into a visible ordered stack; reorder | Blockly snapping: blocks attach under the start block, can be inserted between blocks, and can be dragged to a new place | Blockly |
+| Edit fields | Blockly fields: number fields with the contract's min/max, text ids, static checkbox | `BLOCK_DEFINITIONS` (generated from `OPS`/`LIMITS`) |
+| Remove | drag to the trash can, Delete/Backspace on the selected block, or ✕ in the stack list (the stack closes the gap). Undo with Ctrl/Cmd+Z | Blockly, `removeBlock` |
+| Keyboard: add, reorder, remove | tray chips are buttons (Enter appends to the stack). The **stack list** under the editor has ↑ ↓ ✕ and Attach buttons per block, and focus stays on the button after each move. Alt+↑ / Alt+↓ move the selected block | `outline.js`, `renderOutline`, `runStackAction` |
+| Serialize the connected stack with stable blockIds | `Blockly.serialization.workspaces.save` → `compileWorkspace`. Block ids are Blockly's and survive save/open | `compile.js` |
+| Flag disconnected blocks visibly | a dashed red, faded outline and a warning icon on the canvas, an amber `DISCONNECTED_BLOCK` entry under Problems, a "Not connected" section in the stack list, and a note in the status line | `markBlocks`, `disconnectedWarnings` |
+| No JavaScript from blocks | no Blockly generators, no `eval`. Blocks are data | test in `tests/editor-fixture.test.js` |
+
+Custom blocks would have meant writing our own drag, snapping, field editors, undo and serialization, which is
+large, risky work with no visible gain. The one thing Blockly couldn't do (a page-wide tray) is a small HTML
+component.
+

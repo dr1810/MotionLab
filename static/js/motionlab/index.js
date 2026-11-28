@@ -13,5 +13,5 @@ export {
   validateProgram,
 } from './contract.js';
 export { createSimulation, REST_SPEED, SOLVER_ITERATIONS, POSITION_ITERATIONS } from './engine.js';
-export { compileWorkspace, programToWorkspace, BLOCK_TYPES, START_BLOCK_TYPE } from './compile.js';
+export { compileWorkspace, programToWorkspace, BLOCK_LABELS, BLOCK_TYPES, START_BLOCK_TYPE } from './compile.js';
 export { createView, fitView } from './view.js';

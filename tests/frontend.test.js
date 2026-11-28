@@ -1,7 +1,7 @@
 // Tests for the DOM-free frontend modules: blocks, renderer, playback, programToWorkspace.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BLOCK_DEFINITIONS, TOOLBOX, DEFAULTS, MAX_INSTANCES, BODY_BLOCK_TYPES, defineBlocks, uniqueBodyId } from '../static/js/motionlab/blocks.js';
+import { BLOCK_DEFINITIONS, TRAY, TRAY_DRAG_TYPE, DEFAULTS, MAX_INSTANCES, BODY_BLOCK_TYPES, defineBlocks, hueToHex, uniqueBodyId } from '../static/js/motionlab/blocks.js';
 import { drawScene, gridStep } from '../static/js/motionlab/renderer.js';
 import { createPlayback } from '../static/js/motionlab/playback.js';
 import { BLOCK_TYPES, START_BLOCK_TYPE, compileWorkspace, programToWorkspace } from '../static/js/motionlab/compile.js';
@@ -45,9 +45,33 @@ test('block fields match the compiler mapping and the contract limits', () => {
   }
 });
 
-test('toolbox lists every block type once', () => {
-  const types = TOOLBOX.contents.flatMap((c) => c.contents.map((b) => b.type));
-  assert.deepEqual(types.sort(), BLOCK_DEFINITIONS.map((d) => d.type).sort());
+test('blocks show the brief\'s names, units, ids and restitution/static inputs', () => {
+  const text = (type) => { const d = BLOCK_DEFINITIONS.find((x) => x.type === type); return Object.keys(d).filter((k) => k.startsWith('message')).map((k) => d[k]).join(' | '); };
+  assert.equal(text('motionlab_start'), 'When simulation starts');
+  assert.match(text('motionlab_create_circle'), /^Create Ball  id %1 \| position  x %1 m   y %2 m \| radius %1 m   mass %2 kg \| restitution %1   static %2$/);
+  assert.match(text('motionlab_create_box'), /^Create Box  id %1 .* width %1 m   height %2 m .* mass %1 kg   restitution %2   static %3$/);
+  assert.match(text('motionlab_set_gravity'), /^Set Gravity  x %1 m\/s²   y %2 m\/s²$/);
+  assert.match(text('motionlab_set_velocity'), /^Set Initial Velocity  of %1 \| vx %1 m\/s   vy %2 m\/s$/);
+  assert.match(text('motionlab_apply_force'), /^Apply Force  to %1 \| fx %1 N   fy %2 N/);
+});
+
+test('tray lists every block type once, coloured like its block', () => {
+  const chips = TRAY.flatMap((g) => g.blocks.map((b) => ({ ...b, group: g })));
+  assert.deepEqual(chips.map((c) => c.type).sort(), BLOCK_DEFINITIONS.map((d) => d.type).sort());
+  for (const c of chips) {
+    const def = BLOCK_DEFINITIONS.find((d) => d.type === c.type);
+    assert.equal(c.group.colour, hueToHex(def.colour), `${c.type} chip colour matches its block`);
+    assert.ok(c.label.length > 0 && c.hint.length > 0, `${c.type} has a label and a hint`);
+  }
+  assert.equal(TRAY_DRAG_TYPE, 'application/x-motionlab-block');
+});
+
+test('hueToHex matches Blockly default block colours', () => {
+  // Reference values from Blockly.utils.colour.hueToHex in Blockly 12.3.1.
+  assert.equal(hueToHex(0), '#a55b5b');
+  assert.equal(hueToHex(120), '#5ba55b');
+  assert.equal(hueToHex(210), '#5b80a5');
+  assert.equal(hueToHex(360), hueToHex(0));
 });
 
 test('a stack of default blocks compiles to a valid program', () => {
