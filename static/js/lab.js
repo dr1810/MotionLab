@@ -6,7 +6,7 @@ import { START_BLOCK_TYPE, compileWorkspace, createSimulation, fitView, programT
 import { BODY_BLOCK_TYPES, MAX_INSTANCES, TRAY, TRAY_DRAG_TYPE, defineBlocks, uniqueBodyId } from './motionlab/blocks.js';
 import { drawScene } from './motionlab/renderer.js';
 import { outlineWorkspace } from './motionlab/outline.js';
-import { createPlayback } from './motionlab/playback.js';
+import { createSessionController, formatMetrics, prepareCanvas } from './motionlab/session.js';
 import {
   FileFormatError, PROGRAM_FILENAME, PROJECT_FILENAME, checkFileSize, parseMotionLabFile, serializeProgram, serializeProjectFile,
 } from './motionlab/files.js';
@@ -29,12 +29,10 @@ const ctx = els.canvas.getContext('2d');
 const state = {
   workspace: null, // Blockly workspace
   lastJson: null, // last compiled serialization, to skip no-op recompiles
-  compiled: null, // { ok, program, errors }
-  sim: null,
-  initial: null, // snapshot at tick 0
+  compiled: null, // { ok, program, errors, warnings }
+  session: null, // session controller (static/js/motionlab/session.js): the active simulation and its playback
   current: null, // latest snapshot drawn
   view: null,
-  playback: null,
   note: '', // what the user just did (e.g. "Added set gravity."), shown before the next compile's status
   pendingFocus: null, // { id, action } to refocus in the stack list after it is rebuilt
 };
@@ -46,18 +44,16 @@ function setStatus(text, kind = 'info') {
   els.status.classList.toggle('error', kind === 'error');
 }
 
-function setPlaybackEnabled(enabled) {
-  for (const b of [els.step, els.reset, els.exportBtn]) b.disabled = !enabled;
-  updatePlaybackButtons();
-}
-
-/** Run is available when there is a session and it is not running; Pause only while running. */
-function updatePlaybackButtons() {
-  const running = Boolean(state.playback?.running);
-  els.run.disabled = !state.sim || running;
-  els.pause.disabled = !running;
-  const resumes = Boolean(state.sim && !running && state.current && state.current.tick > 0);
-  els.run.lastChild.textContent = resumes ? ' Resume' : ' Run';
+/**
+ * Buttons follow the session state: Run when there is a session and it is not running (reads "Resume" when paused
+ * mid-run), Pause only while running, Step/Reset/Export whenever there is a session.
+ */
+function updatePlaybackButtons(status = state.session?.status) {
+  const s = status ?? { hasSession: false, running: false, canResume: false };
+  els.run.disabled = !s.hasSession || s.running;
+  els.pause.disabled = !s.running;
+  for (const b of [els.step, els.reset, els.exportBtn]) b.disabled = !s.hasSession;
+  els.run.lastChild.textContent = s.canResume ? ' Resume' : ' Run';
 }
 
 function showErrors(errors, warnings = []) {
@@ -239,13 +235,12 @@ function runStackAction(action, id) {
   state.pendingFocus = { id, action: action === 'attach' ? 'select' : action };
 }
 
-const fmt = (n) => (Math.abs(n) < 0.0005 ? '0.000' : n.toFixed(3));
-
 function updateReadout(snap) {
-  els.clock.textContent = snap ? `tick ${snap.tick} · ${snap.time.toFixed(3)} s` : 'tick – · – s';
-  els.bodies.replaceChildren(...(snap?.bodies ?? []).map((b) => {
+  const { clock, rows } = formatMetrics(snap);
+  els.clock.textContent = clock;
+  els.bodies.replaceChildren(...rows.map((row) => {
     const tr = document.createElement('tr');
-    for (const v of [b.id + (b.static ? ' (static)' : ''), fmt(b.position.x), fmt(b.position.y), fmt(b.velocity.x), fmt(b.velocity.y)]) {
+    for (const v of row) {
       const td = document.createElement('td');
       td.textContent = v;
       tr.append(td);
@@ -256,17 +251,8 @@ function updateReadout(snap) {
 
 // ---------- canvas ----------
 
-function canvasSize() {
-  const width = Math.max(1, els.canvas.clientWidth);
-  const height = Math.max(1, els.canvas.clientHeight);
-  const dpr = window.devicePixelRatio || 1;
-  if (els.canvas.width !== Math.round(width * dpr) || els.canvas.height !== Math.round(height * dpr)) {
-    els.canvas.width = Math.round(width * dpr);
-    els.canvas.height = Math.round(height * dpr);
-  }
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return { width, height };
-}
+// High-DPI: the backing store is CSS size × devicePixelRatio; drawing stays in CSS pixels (prepareCanvas).
+const canvasSize = () => prepareCanvas(els.canvas, ctx, window.devicePixelRatio || 1);
 
 /** Fit the camera to the initial scene plus `snap`; refit only when a body leaves the view or the canvas resized. */
 function ensureView(snap, size, force = false) {
@@ -278,13 +264,16 @@ function ensureView(snap, size, force = false) {
     return p.x - pr < 0 || p.x + pr > v.width || p.y - pr < 0;
   });
   if (force || !v || outside || v.width !== size.width || v.height !== size.height) {
-    const bodies = state.initial ? [...state.initial.bodies, ...snap.bodies] : snap.bodies;
+    const initial = state.session?.initial;
+    const bodies = initial ? [...initial.bodies, ...snap.bodies] : snap.bodies;
     state.view = fitView({ bodies }, size);
   }
 }
 
+/** The session controller's onRender: draw the snapshot (or an empty scene) and update the metrics. */
 function render(snap = state.current, { refit = false } = {}) {
   const size = canvasSize();
+  state.current = snap;
   if (!snap) {
     // No valid program: draw an empty scene so the floor is still visible.
     state.view = fitView({ bodies: [] }, size);
@@ -292,24 +281,22 @@ function render(snap = state.current, { refit = false } = {}) {
     updateReadout(null);
     return;
   }
-  state.current = snap;
   ensureView(snap, size, refit);
   drawScene(ctx, snap, state.view);
   updateReadout(snap);
-  updatePlaybackButtons(); // "Run" at tick 0, "Resume" when paused mid-run
 }
 
-// ---------- playback ----------
-
-function loop(now) {
-  if (!state.playback.running) return;
-  state.playback.frame(now);
-  requestAnimationFrame(loop);
-}
-
-function stopPlayback() {
-  state.playback?.stop();
-  updatePlaybackButtons();
+/** Redraw (never step) when the canvas is resized or the screen's pixel density changes. */
+function watchCanvasSize() {
+  new ResizeObserver(() => state.session ? state.session.redraw() : render()).observe(els.canvas);
+  const watchDpr = () => {
+    const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    mq.addEventListener('change', () => {
+      state.session ? state.session.redraw() : render();
+      watchDpr();
+    }, { once: true });
+  };
+  watchDpr();
 }
 
 // ---------- compile ----------
@@ -331,7 +318,6 @@ function compileNow() {
     /* storage unavailable: autosave is a convenience only */
   }
 
-  stopPlayback();
   const compiled = compileWorkspace(json);
   state.compiled = compiled;
   markBlocks([...compiled.errors, ...compiled.warnings]);
@@ -342,23 +328,28 @@ function compileNow() {
   const note = state.note ? `${state.note} ` : '';
   state.note = '';
   if (!compiled.ok) {
-    state.sim = null;
-    state.initial = null;
-    state.current = null;
-    setPlaybackEnabled(false);
+    state.session.clear();
     const n = compiled.errors.length;
     setStatus(`${note}${n} problem${n === 1 ? '' : 's'} to fix before running.`, 'error');
-    render(null);
     return;
   }
-  state.sim = createSimulation(compiled.program);
-  state.initial = state.sim.snapshot();
-  setPlaybackEnabled(true);
-  const count = state.initial.bodies.length;
   const loose = compiled.warnings.length;
   const looseNote = loose ? ` ${loose} loose stack${loose === 1 ? ' is' : 's are'} not connected and won't run.` : '';
-  setStatus(note + (count ? `Ready: ${count} bod${count === 1 ? 'y' : 'ies'}. Press Run.` : 'Ready: the start stack is empty, so the scene has no bodies.') + looseNote);
-  render(state.initial, { refit: true });
+  // A changed program gets a fresh session at tick 0; an unchanged one (e.g. the stack was only dragged around, or a
+  // loose block changed) keeps the current session, so a paused run can still resume.
+  const { fresh } = state.session.load(compiled.program);
+  if (fresh) {
+    const count = state.session.initial.bodies.length;
+    setStatus(note + (count ? `Ready: ${count} bod${count === 1 ? 'y' : 'ies'}. Press Run.` : 'Ready: the start stack is empty, so the scene has no bodies.') + looseNote);
+  } else if (note || looseNote) {
+    setStatus(`${note}The program did not change, so the current session continues.${looseNote}`);
+  }
+}
+
+/** Compile any edit that is still waiting for its debounce, so Run always uses what is on screen. */
+function flushCompile() {
+  clearTimeout(compileTimer);
+  compileNow();
 }
 
 // ---------- workspace loading ----------
@@ -369,7 +360,7 @@ function compileNow() {
  */
 function loadWorkspace(json, message) {
   const previous = Blockly.serialization.workspaces.save(state.workspace);
-  stopPlayback();
+  state.session.clear(); // loading always starts a fresh session, even if the program happens to be the same
   state.lastJson = null;
   Blockly.Events.disable();
   try {
@@ -578,28 +569,19 @@ async function openFile(file) {
 
 function wireControls() {
   els.run.addEventListener('click', () => {
-    if (!state.sim || state.playback.running) return; // exactly one animation loop
-    state.playback.start(performance.now());
-    updatePlaybackButtons();
-    setStatus('Running.');
-    requestAnimationFrame(loop);
+    flushCompile(); // an edit made just now compiles first: Run plays the fresh session
+    const resuming = state.session.status.canResume;
+    if (state.session.run()) setStatus(resuming ? 'Running (resumed).' : 'Running.');
   });
   els.pause.addEventListener('click', () => {
-    if (!state.playback.running) return;
-    stopPlayback();
-    setStatus('Paused. Run resumes from here; Reset goes back to the start.');
+    if (state.session.pause()) setStatus('Paused. Run resumes from here; Reset goes back to the start.');
   });
   els.step.addEventListener('click', () => {
-    if (!state.sim) return;
-    stopPlayback();
-    render(state.sim.step());
-    setStatus('Stepped one tick (1/120 s).');
+    flushCompile();
+    if (state.session.step()) setStatus('Stepped one tick (1/120 s).');
   });
   els.reset.addEventListener('click', () => {
-    if (!state.sim) return;
-    stopPlayback();
-    render(state.sim.reset(), { refit: true });
-    setStatus('Reset to the start.');
+    if (state.session.reset()) setStatus('Reset to the start.');
   });
   els.example.addEventListener('click', loadExample);
   els.clear.addEventListener('click', () => loadWorkspace(EMPTY_WORKSPACE, 'Cleared. Drag blocks under the start block.'));
@@ -633,7 +615,7 @@ function wireControls() {
   });
   new ResizeObserver(() => Blockly.svgResize(state.workspace)).observe(els.blockly);
   // Redraw (and refit) when the Output panel changes size; world state is untouched.
-  new ResizeObserver(() => render()).observe(els.canvas);
+  watchCanvasSize();
   wireTray();
   // Stack list buttons.
   document.getElementById('stackOutline').addEventListener('click', (e) => {
@@ -654,7 +636,7 @@ function wireControls() {
 }
 
 function boot() {
-  setPlaybackEnabled(false);
+  updatePlaybackButtons();
   buildTray();
   if (!window.Blockly) {
     for (const b of [els.example, els.clear, els.open, els.save, ...els.tray.querySelectorAll('.chip')]) b.disabled = true;
@@ -672,7 +654,14 @@ function boot() {
     move: { scrollbars: true, drag: true, wheel: false },
     media: `https://cdn.jsdelivr.net/npm/blockly@${version}/media/`,
   });
-  state.playback = createPlayback({ step: () => state.sim.step(), onFrame: (snap) => render(snap) });
+  state.session = createSessionController({
+    createSimulation, // the real engine (static/js/motionlab/engine.js)
+    requestFrame: (cb) => window.requestAnimationFrame(cb),
+    cancelFrame: (id) => window.cancelAnimationFrame(id),
+    now: () => performance.now(),
+    onRender: render,
+    onState: updatePlaybackButtons,
+  });
 
   state.workspace.addChangeListener((e) => {
     if (e.isUiEvent) return;

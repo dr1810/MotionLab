@@ -20,6 +20,7 @@ All modules are ES modules with no dependencies. They run unchanged in Node ≥ 
 | `static/js/motionlab/blocks.js` | `BLOCK_DEFINITIONS`, `TRAY`, `TRAY_DRAG_TYPE`, `hueToHex(hue)`, `DEFAULTS`, `MAX_INSTANCES`, `BODY_BLOCK_TYPES`, `defineBlocks(Blockly)`, `uniqueBodyId(taken, base)` |
 | `static/js/motionlab/renderer.js` | `drawScene(ctx, snapshot, view, {velocities?, labels?, theme?})`, `gridStep(scale)`, `THEME` |
 | `static/js/motionlab/playback.js` | `createPlayback({step, onFrame?, dt?, maxStepsPerFrame? = 12, maxFrameGap? = 0.1})` → `{running, start(now), stop(), frame(now)}` |
+| `static/js/motionlab/session.js` | `createSessionController({createSimulation, requestFrame, cancelFrame, now, onRender, onState?})` → `{load(program) → {fresh}, clear(), run(), pause(), reset(), step(), redraw(), status, current, initial, framePending}`; `formatMetrics(snapshot)` → `{clock, rows}`; `prepareCanvas(canvas, ctx, dpr)` → CSS size |
 | `static/js/motionlab/files.js` | `createProjectEnvelope(workspace, program?)`, `serializeProjectFile(workspace, program?)`, `serializeProgram(program)`, `parseMotionLabFile(text)`, `validateWorkspace(workspace)`, `checkFileSize(bytes)`, `byteLength(text)`, `FileFormatError` (`.code`), `FILE_ERROR_CODES`, `FILE_FORMAT`, `LEGACY_FILE_FORMATS`, `FILE_FORMAT_VERSION`, `MAX_FILE_BYTES`, `MAX_PROJECT_BLOCKS`, `PROJECT_FILENAME`, `PROGRAM_FILENAME` |
 | `static/js/motionlab/index.js` | re-exports contract, engine, compile and view (the modules above it). Frontend modules are imported directly |
 
@@ -30,6 +31,27 @@ All modules are ES modules with no dependencies. They run unchanged in Node ≥ 
 - Bodies are circles or axis-aligned boxes. No rotation and no friction (a body sliding on the floor or on a box keeps
   its horizontal speed).
 - Canvas: CSS pixels, +y down. The canvas uses its own meter→pixel transform from `view.js`.
+
+### Playback (session controller)
+
+The browser owns timing; `session.js` owns the rules. Engine steps are always exactly `DT`, run from a bounded
+accumulator: each animation frame credits at most 0.1 s of real time and runs at most 12 steps, so the simulation
+falls behind real time after a long gap instead of bursting. There is exactly one animation loop: at most one frame
+is ever pending, Run while running is ignored, and Pause cancels the pending frame.
+
+| Action | Effect |
+|---|---|
+| `load(program)` with a **changed** program (JSON differs) | stop, new session at tick 0, redraw with refit (`{fresh: true}`) |
+| `load(program)` with the **same** program | keep the session, its tick and its playback state (`{fresh: false}`) |
+| `run()` | start, or resume after Pause; timing debt starts at zero |
+| `pause()` | stop and cancel the pending frame; the session keeps its tick (Run then reads "Resume") |
+| `reset()` | stop, `sim.reset()` to tick 0, redraw with refit; timing debt cleared |
+| `step()` | stop and advance exactly one tick |
+| `redraw()` | draw the current snapshot again (resize, pixel-density change); never steps |
+| `clear()` | no runnable program: stop, drop the session, draw the empty scene |
+
+In the page, Run and Step first compile any edit still waiting for its 120 ms debounce, so they always use what is on
+screen. Opening a file or Example always starts a fresh session.
 
 ### How the renderer finds the floor
 

@@ -37,7 +37,7 @@ needs a server. Details and sources are in ARCHITECTURE.md.
 | `GET /static/js/simulation.js`, `/static/css/style.css` | 200 (`text/javascript`, `text/css`) |
 | `GET /lab` | **500, `TemplateNotFound: lab.html`** (template deleted). Fixed: page rebuilt |
 | `GET /fixtures/ball-and-box.program.json` | **404** (fixture deleted). Now 200 again |
-| `npm test` | not runnable (`package.json` deleted). Now 137/137 pass (+ 6 Python route tests) |
+| `npm test` | not runnable (`package.json` deleted). Now 152/152 pass (+ 6 Python route tests) |
 
 ## Current state
 
@@ -67,6 +67,8 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `static/js/motionlab/blocks.js` | Blockly block JSON generated from `BLOCK_TYPES`/`OPS`/`LIMITS`; the `TRAY` chip list, `hueToHex`, `uniqueBodyId` |
 | `static/js/motionlab/renderer.js` | `drawScene(ctx, snapshot, view)`: grid, floor at `view.floorPx`, bodies, velocity arrows, labels |
 | `static/js/motionlab/playback.js` | `createPlayback({step, onFrame})`: fixed 1/120 s steps driven by `requestAnimationFrame` time |
+| `static/js/motionlab/session.js` | session controller: the active session plus Run/Pause/Reset/Step, one animation loop, fresh vs kept sessions, metrics text, high-DPI canvas sizing (DOM-free; the page injects the engine, requestAnimationFrame and the clock) |
+| `tests/doubles/fixture-simulation.js` | fixture-backed `createSimulation` double (snapshots from `ball-and-box.snapshots.json`, counts steps and resets) and a manual frame clock, for isolated UI tests |
 | `static/js/motionlab/files.js` | project envelope v1: save/open, validation, `FileFormatError` codes (see ARCHITECTURE.md) |
 | `static/js/motionlab/index.js` | public re-exports (also `programToWorkspace`) |
 | `static/js/lab.js` | page glue: Blockly ↔ compiler ↔ engine ↔ canvas, files, autosave. No logic worth unit-testing lives here |
@@ -76,7 +78,7 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `fixtures/ball-and-box.snapshots.json`, `scripts/record-fixture.js` | real snapshots recorded headlessly (setup → impact → rest), and the recorder |
 | `fixtures/ball-and-box.editor.{workspace,program}.json` | a stack authored in the real editor (Blockly-generated ids, one disconnected block) and the exact program it must compile to |
 | `static/js/motionlab/outline.js` | text model of the Code Area for the keyboard stack list: stack in order, loose stacks, unit-labelled summaries |
-| `tests/{contract,engine,integrator,contacts,simulation,project-files,compile,view,frontend,outline,editor-fixture}.test.js`, `tests/helpers.js` | 137 Node tests |
+| `tests/{contract,engine,integrator,contacts,simulation,project-files,compile,view,frontend,outline,editor-fixture,session}.test.js`, `tests/helpers.js` | 152 Node tests |
 | `tests/test_routes.py` | 6 Python tests: routes are read-only GETs, writes get 405, the route table matches ARCHITECTURE.md |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
@@ -95,8 +97,12 @@ Templates use `url_for('lab')` and `url_for('mini')`.
   Drag a chip into the Code Area to place the block at the drop point, or click it (Enter/Space) to append the block
   to the end of the start stack. Only one start block can exist: its chip is unavailable while one is present
   (`maxInstances` also blocks duplicating it). The compiler still reports `MULTIPLE_START_BLOCKS` for loaded files.
-- **Playback:** Run (reads "Resume" when paused mid-run; disabled while running, so there is only one animation
-  loop), Pause (enabled only while running), Reset (back to tick 0), Step (one tick).
+- **Playback** (`session.js`, rules in CONTRACT.md "Playback"):
+  - Run: disabled while running, and reads "Resume" when paused mid-run. It first compiles any pending edit.
+  - Pause: enabled only while running; cancels the pending frame.
+  - Reset: back to tick 0, with timing debt cleared. Step: one tick.
+  - An edit that changes the program starts a fresh session. An edit that doesn't (dragging the stack around,
+    changing a loose block) keeps the session, so a paused run can still resume.
 - **Editor: Blockly**, with our HTML tray and a stack list (the decision and reasons are in
   [ARCHITECTURE.md](ARCHITECTURE.md#editor-decision-blockly-with-an-html-tray-and-a-stack-list)). The blocks are
   **When simulation starts**, **Create Ball**, **Create Box**, **Set Gravity**, **Set Initial Velocity** and
@@ -113,8 +119,10 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 - Every non-UI change recompiles after 120 ms. Errors show as warning icons on blocks and in the list under the
   canvas; clicking an error centers and selects its block. Run/Step/Reset/Export are disabled while there are errors.
 - A body block dragged in or pasted with a used name is renamed (`ball` → `ball2`) so it doesn't start as an error.
-- Playback runs in real time: 120 ticks per second, at most 12 per frame, so a background tab doesn't burst. The
-  clock and per-body readout (x, y, vx, vy with units) sit in the Output panel.
+- Playback runs in real time: 120 ticks per second, at most 12 per frame (0.1 s of credit), so a background tab
+  doesn't burst. The clock and per-body readout (x, y, vx, vy with units) sit in the Output panel and update every
+  frame. The canvas backing store is CSS size × devicePixelRatio. It redraws (never steps) on resize and when the
+  pixel density changes, for example when the window moves to another screen.
 - Accessibility: a skip link to the Code Area, a visible `:focus-visible` outline on every control, chip and
   clickable problem, problems you can focus and open with Enter, and a live status line.
 - Camera: fitted to the initial scene; it zooms out when a body leaves the view (e.g. the ball rolling away).
@@ -161,6 +169,13 @@ Server route tests (Python, uses the venv):
 
 ```bash
 npm run test:server
+```
+
+Playback tests only (Run/Pause/Reset/Step transitions and metrics under a manual frame clock, with the
+fixture-backed simulation double; plus one run against the real engine):
+
+```bash
+node --test tests/session.test.js
 ```
 
 Editor tests only (the editor-authored fixture compiles to its expected program, disconnected blocks are flagged,
@@ -248,6 +263,23 @@ jsDelivr CDN.
     on load, so such a file can load slightly different from its JSON. Saved workspace files are exact.
 
 ## Known failures / open items
+
+- Playback tests: no failing cases (152/152 Node + 6/6 Python, 2026-11-27). Mutation-checked:
+  - Pause not cancelling the frame, and Run not cancelling a pending frame, both fail the one-loop test.
+  - Keeping fractional timing debt fails both the Resume and the Reset tests.
+  - Replacing an unchanged program fails the resume tests. Removing the catch-up cap fails the long-gap test.
+- Browser-checked (fresh server, Blockly 12.3.1), with the pane in the background, so frames were throttled. Pace
+  was not measured in the browser; that is covered by the controlled-timing tests.
+  - Run scheduled one frame and ticks advanced. Pause cancelled it, and the tick stayed frozen at 21.
+  - Dragging the stack recompiled with the same program, so the session was kept and Resume continued from tick 21.
+  - Reset gave tick 0, no pending frame, and the label back to "Run".
+  - An invalid body reference put the message on the block's warning icon, listed it under Problems, and disabled
+    Run; fixing it cleared both.
+  - A resize from 666 to 727 CSS px gave a 2× backing store (1454×558) and left the snapshot unchanged.
+  - An edit followed immediately by Run gave a fresh session with the new value, from tick 0, in 4 of 5 attempts.
+    The first attempt resumed the old session instead; it coincided with a reported user click in the tab and could
+    not be reproduced in the next 4 attempts (including the same paused-mid-run state). **Treat it as open:**
+    reproduce in a foreground tab before the demo.
 
 - Editor tests: no failing cases (137/137 Node + 6/6 Python, 2026-11-27). Mutation-checked: replacing block ids with
   positions, and dropping the disconnected warnings, each fail the editor-fixture tests. Browser-checked on a fresh
