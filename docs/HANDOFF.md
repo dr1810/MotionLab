@@ -1,7 +1,13 @@
 # MotionLab handoff (for Misora)
 
 Last updated 2026-11-27. Owner of setup, contract, interpreter, engine, frontend, blocks, rendering, file handling
-and prototype tests: Claude. Spec: [CONTRACT.md](CONTRACT.md).
+and prototype tests: Claude. Spec: [CONTRACT.md](CONTRACT.md). Storage decision and project file contract:
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+**Architecture in use:** browser-side simulation and browser-side JSON project files (Save/Open, plus localStorage
+autosave). Flask only serves pages and read-only fixtures: no database, no project API, and no route accepts writes.
+Why: no judging criteria are available, the proposal made Flask and a database optional, and no existing feature
+needs a server. Details and sources are in ARCHITECTURE.md.
 
 ## Repo baseline (inspected 2026-11-27)
 
@@ -31,7 +37,7 @@ and prototype tests: Claude. Spec: [CONTRACT.md](CONTRACT.md).
 | `GET /static/js/simulation.js`, `/static/css/style.css` | 200 (`text/javascript`, `text/css`) |
 | `GET /lab` | **500, `TemplateNotFound: lab.html`** (template deleted). Fixed: page rebuilt |
 | `GET /fixtures/ball-and-box.program.json` | **404** (fixture deleted). Now 200 again |
-| `npm test` | not runnable (`package.json` deleted). Now 108/108 pass |
+| `npm test` | not runnable (`package.json` deleted). Now 124/124 pass (+ 6 Python route tests) |
 
 ## Current state
 
@@ -61,13 +67,14 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `static/js/motionlab/blocks.js` | Blockly block JSON + toolbox generated from `BLOCK_TYPES`/`OPS`/`LIMITS`; `uniqueBodyId` |
 | `static/js/motionlab/renderer.js` | `drawScene(ctx, snapshot, view)`: grid, floor at `view.floorPx`, bodies, velocity arrows, labels |
 | `static/js/motionlab/playback.js` | `createPlayback({step, onFrame})`: fixed 1/120 s steps driven by `requestAnimationFrame` time |
-| `static/js/motionlab/files.js` | save/open format, `parseMotionLabFile`, `FileFormatError` |
+| `static/js/motionlab/files.js` | project envelope v1: save/open, validation, `FileFormatError` codes (see ARCHITECTURE.md) |
 | `static/js/motionlab/index.js` | public re-exports (also `programToWorkspace`) |
 | `static/js/lab.js` | page glue: Blockly ↔ compiler ↔ engine ↔ canvas, files, autosave. No logic worth unit-testing lives here |
 | `templates/lab.html`, `static/css/lab.css` | the block lab page |
 | `fixtures/ball-and-box.{program,workspace,expected}.json` | canonical fixture (the workspace is what Example loads) |
 | `fixtures/ball-and-box.snapshots.json`, `scripts/record-fixture.js` | real snapshots recorded headlessly (setup → impact → rest), and the recorder |
-| `tests/{contract,engine,integrator,contacts,simulation,compile,view,frontend}.test.js`, `tests/helpers.js` | 108 tests |
+| `tests/{contract,engine,integrator,contacts,simulation,project-files,compile,view,frontend}.test.js`, `tests/helpers.js` | 124 Node tests |
+| `tests/test_routes.py` | 6 Python tests: routes are read-only GETs, writes get 405, the route table matches ARCHITECTURE.md |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
 ## The block lab (`/`)
@@ -83,9 +90,12 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 - Run/Pause plays in real time (120 ticks per second; at most 12 ticks per frame, so a background tab doesn't burst).
   Step runs one tick. Reset goes back to tick 0. Clock and per-body readout (x, y, vx, vy) under the canvas.
 - Camera: fitted to the initial scene; it zooms out when a body leaves the view (e.g. the ball rolling away).
-- Example loads `fixtures/ball-and-box.workspace.json`. Clear leaves only the start block. Open… accepts a saved
-  `.motionlab.json` or a bare program JSON (converted to blocks). Save writes `experiment.motionlab.json`; Export
-  writes `experiment.program.json` (valid programs only).
+- Example loads `fixtures/ball-and-box.workspace.json`. Clear leaves only the start block. Open… accepts a project
+  file (`.motionlab.json`, envelope v1) or a bare program JSON (converted to blocks). Save writes
+  `experiment.motionlab.json`; Export writes `experiment.program.json` (valid programs only).
+- Import checks the file size before reading it, then validates the whole file. A failed import leaves the editor,
+  the session (tick included) and playback untouched, and says why in the status line. A successful import stops
+  playback and compiles a fresh session from the blocks.
 - Autosave: `localStorage` key `motionlab.workspace.v1` (per origin) after every compile, restored on reload.
 - Console debugging: `window.motionlab.state` (workspace, compiled program, sim, current snapshot, view).
 
@@ -110,10 +120,22 @@ after changing templates: with debug off, Flask caches templates.
 .venv/bin/python app.py
 ```
 
-Test:
+Test (Node, everything in the browser code):
 
 ```bash
 npm test
+```
+
+Server route tests (Python, uses the venv):
+
+```bash
+npm run test:server
+```
+
+Project file tests only (envelope round-trips and every import error code):
+
+```bash
+node --test tests/project-files.test.js
 ```
 
 Engine integrator tests only (constant velocity, gravity, force on different masses, static bodies, first-tick force
@@ -148,7 +170,8 @@ npm run fixture:check
 npm run fixture:record
 ```
 
-Full check (syntax-check the legacy demo script, check the recorded snapshots, then run the tests):
+Full check (syntax-check the legacy demo script, check the recorded snapshots, run the Node tests, then the server
+route tests):
 
 ```bash
 npm run check
@@ -158,6 +181,10 @@ Build: none. Flask serves the ES modules as static files; there is no bundler. B
 jsDelivr CDN.
 
 ## Assumptions and decisions
+
+0. **Storage stays in the browser** (2026-11-27): JSON project files and localStorage autosave, with Flask as a
+   read-only static host. See ARCHITECTURE.md for the evidence. The envelope tag changed from `motionlab-workspace`
+   to `motionlab-project`; old files still open.
 
 1. **Own engine, not Matter.js.** Matter.js isn't in the repo, adding it means a download, and its y-down,
    per-step-velocity model fits an SI, exact-1/120 s, deterministic contract poorly. Trade-offs: no rotation and no
@@ -184,6 +211,16 @@ jsDelivr CDN.
 
 ## Known failures / open items
 
+- Project file tests: no failing cases (124/124 Node + 6/6 Python, 2026-11-27). Mutation-checked: accepting unknown
+  block types, counting characters instead of UTF-8 bytes for the size limit, and accepting newer format versions
+  each fail their test. Browser-checked on a fresh server (Blockly 12.3.1):
+  - Save wrote the envelope (5 fields, `motionlab-project`).
+  - Six failed imports (malformed JSON, newer format, unknown block type, bad bare program, a non-MotionLab file, a
+    reported 5 MB file) each kept the editor, the session object and tick 30 unchanged, with the error shown.
+  - A forced Blockly load failure restored the previous six blocks, still runnable.
+  - Clear, then Open of the saved file, restored the identical workspace and program, stopped playback, and reset
+    to tick 0.
+  - No console errors.
 - Session tests: no failing cases (108/108 total on Node 24.16.0, 2026-11-27). Mutation-checked: allowing
   velocity/force on static bodies fails the STATIC_BODY test, and changing `REST_SPEED` 0.2 → 0.21 fails the exact
   recorded-snapshot test and makes `npm run fixture:check` exit 1.

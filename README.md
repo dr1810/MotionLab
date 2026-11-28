@@ -26,5 +26,5 @@ For a fresh installation, create a virtual environment and install `requirements
 ## Prototype modules (contract v1)
 
 Run the tests with `npm test` (Node 20+).
-Spec: `docs/CONTRACT.md`. Setup, commands, status and open items: `docs/HANDOFF.md`.
+Spec: `docs/CONTRACT.md`. Setup, commands, status and open items: `docs/HANDOFF.md`. Storage decision and project file format: `docs/ARCHITECTURE.md` (projects are JSON files saved and opened in the browser; the server stores nothing).
 Canonical fixture: `fixtures/ball-and-box.program.json`, its Blockly workspace `fixtures/ball-and-box.workspace.json`, and expected state `fixtures/ball-and-box.expected.json`.

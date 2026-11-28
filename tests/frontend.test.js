@@ -1,10 +1,9 @@
-// Tests for the DOM-free frontend modules: blocks, renderer, playback, files, programToWorkspace.
+// Tests for the DOM-free frontend modules: blocks, renderer, playback, programToWorkspace.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BLOCK_DEFINITIONS, TOOLBOX, DEFAULTS, MAX_INSTANCES, BODY_BLOCK_TYPES, defineBlocks, uniqueBodyId } from '../static/js/motionlab/blocks.js';
 import { drawScene, gridStep } from '../static/js/motionlab/renderer.js';
 import { createPlayback } from '../static/js/motionlab/playback.js';
-import { parseMotionLabFile, serializeWorkspaceFile, serializeProgram, FileFormatError, MAX_FILE_BYTES } from '../static/js/motionlab/files.js';
 import { BLOCK_TYPES, START_BLOCK_TYPE, compileWorkspace, programToWorkspace } from '../static/js/motionlab/compile.js';
 import { LIMITS, OPS, DT, ERROR_CODES as E } from '../static/js/motionlab/contract.js';
 import { createSimulation } from '../static/js/motionlab/engine.js';
@@ -164,42 +163,7 @@ test('one second of 60 Hz frames is exactly 120 steps', () => {
   assert.equal(steps * DT, 1);
 });
 
-// ---------- files ----------
-
-test('workspace file round trip', () => {
-  const text = serializeWorkspaceFile(workspace(), program());
-  const data = JSON.parse(text);
-  assert.equal(data.format, 'motionlab-workspace');
-  assert.equal(data.formatVersion, 1);
-  assert.equal(data.contractVersion, 1);
-  assert.deepEqual(data.program, program());
-  assert.deepEqual(parseMotionLabFile(text), { source: 'workspace', workspace: workspace() });
-  assert.equal(JSON.parse(serializeWorkspaceFile(workspace())).program, null);
-  assert.deepEqual(JSON.parse(serializeProgram(program())), program());
-});
-
-test('opening a bare program converts it to blocks that compile back to it', () => {
-  const r = parseMotionLabFile(JSON.stringify(program()));
-  assert.equal(r.source, 'program');
-  assert.deepEqual(compileWorkspace(r.workspace).program, program());
-  assert.deepEqual(createSimulation(compileWorkspace(r.workspace).program).snapshot(), expected().initial);
-});
-
-test('bad files raise FileFormatError with a reason', () => {
-  const bad = [
-    ['{nope', /not valid JSON/],
-    ['[1,2]', /JSON object/],
-    ['{"hello": 1}', /Not a MotionLab file/],
-    ['{"format": "motionlab-workspace", "formatVersion": 9, "workspace": {}}', /Unsupported/],
-    ['{"format": "motionlab-workspace", "formatVersion": 1}', /no "workspace"/],
-    ['{"version": 1, "commands": [{"op": "explode", "blockId": "x"}]}', /unknown op/],
-    ['{"version": 1, "commands": 3}', /commands/],
-    [' '.repeat(MAX_FILE_BYTES + 1), /too large/],
-  ];
-  for (const [text, re] of bad) {
-    assert.throws(() => parseMotionLabFile(text), (err) => err instanceof FileFormatError && re.test(err.message), text.slice(0, 40));
-  }
-});
+// Project file tests live in tests/project-files.test.js.
 
 // ---------- programToWorkspace ----------
 

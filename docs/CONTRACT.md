@@ -19,7 +19,7 @@ All modules are ES modules with no dependencies. They run unchanged in Node ≥ 
 | `static/js/motionlab/blocks.js` | `BLOCK_DEFINITIONS`, `TOOLBOX`, `DEFAULTS`, `MAX_INSTANCES`, `BODY_BLOCK_TYPES`, `defineBlocks(Blockly)`, `uniqueBodyId(taken, base)` |
 | `static/js/motionlab/renderer.js` | `drawScene(ctx, snapshot, view, {velocities?, labels?, theme?})`, `gridStep(scale)`, `THEME` |
 | `static/js/motionlab/playback.js` | `createPlayback({step, onFrame?, dt?, maxStepsPerFrame? = 12, maxFrameGap? = 0.1})` → `{running, start(now), stop(), frame(now)}` |
-| `static/js/motionlab/files.js` | `serializeWorkspaceFile(workspace, program?)`, `serializeProgram(program)`, `parseMotionLabFile(text)`, `FileFormatError`, `FILE_FORMAT`, `FILE_FORMAT_VERSION`, `MAX_FILE_BYTES`, `WORKSPACE_FILENAME`, `PROGRAM_FILENAME` |
+| `static/js/motionlab/files.js` | `createProjectEnvelope(workspace, program?)`, `serializeProjectFile(workspace, program?)`, `serializeProgram(program)`, `parseMotionLabFile(text)`, `validateWorkspace(workspace)`, `checkFileSize(bytes)`, `byteLength(text)`, `FileFormatError` (`.code`), `FILE_ERROR_CODES`, `FILE_FORMAT`, `LEGACY_FILE_FORMATS`, `FILE_FORMAT_VERSION`, `MAX_FILE_BYTES`, `MAX_PROJECT_BLOCKS`, `PROJECT_FILENAME`, `PROGRAM_FILENAME` |
 | `static/js/motionlab/index.js` | re-exports contract, engine, compile and view (the modules above it). Frontend modules are imported directly |
 
 ## Coordinates and units
@@ -242,18 +242,12 @@ import) and returns `{ ok, program, errors }`.
 
 ## Files
 
-Saved workspace (`experiment.motionlab.json`):
-
-```json
-{ "format": "motionlab-workspace", "formatVersion": 1, "contractVersion": 1,
-  "workspace": { "blocks": { "languageVersion": 0, "blocks": [ ... ] } },
-  "program": { "version": 1, "commands": [ ... ] } }
-```
-
-`program` is informational (`null` if the workspace didn't compile); opening uses `workspace`. Open also accepts a
-bare program v1, converted with `programToWorkspace`. Files over 1 MB, invalid JSON, another `formatVersion`, or a
-program with an unknown op raise `FileFormatError` with a one-line reason. Exported programs
-(`experiment.program.json`) are exactly program v1.
+Project files are the storage contract. The **project envelope v1**, its validation rules, error codes and import
+behaviour are specified in [ARCHITECTURE.md](ARCHITECTURE.md#project-envelope-v1-the-storage-contract), together
+with the decision to keep storage in the browser. In short:
+`{ "format": "motionlab-project", "formatVersion": 1, "contractVersion": 1, "workspace": …, "program": … }`, where
+`workspace` is authoritative and `program` is regenerated on open. Exported programs (`experiment.program.json`) are
+exactly program v1.
 
 ## Canonical fixture
 

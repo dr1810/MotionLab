@@ -6,7 +6,7 @@ import { BODY_BLOCK_TYPES, MAX_INSTANCES, TOOLBOX, defineBlocks, uniqueBodyId } 
 import { drawScene } from './motionlab/renderer.js';
 import { createPlayback } from './motionlab/playback.js';
 import {
-  FileFormatError, PROGRAM_FILENAME, WORKSPACE_FILENAME, parseMotionLabFile, serializeProgram, serializeWorkspaceFile,
+  FileFormatError, PROGRAM_FILENAME, PROJECT_FILENAME, checkFileSize, parseMotionLabFile, serializeProgram, serializeProjectFile,
 } from './motionlab/files.js';
 
 const STORAGE_KEY = 'motionlab.workspace.v1';
@@ -188,17 +188,26 @@ function compileNow() {
 
 // ---------- workspace loading ----------
 
+/**
+ * Replace the editor with `json` and compile a fresh session from it. If Blockly rejects the workspace, the previous
+ * workspace is put back and the error is rethrown, so a failed load never leaves the editor empty.
+ */
 function loadWorkspace(json, message) {
+  const previous = Blockly.serialization.workspaces.save(state.workspace);
   stopPlayback();
   state.lastJson = null;
   Blockly.Events.disable();
   try {
     state.workspace.clear();
     Blockly.serialization.workspaces.load(json, state.workspace);
+  } catch (err) {
+    state.workspace.clear();
+    Blockly.serialization.workspaces.load(previous, state.workspace);
+    throw err;
   } finally {
     Blockly.Events.enable();
+    compileNow();
   }
-  compileNow();
   if (message && state.compiled?.ok) setStatus(message);
 }
 
@@ -240,12 +249,23 @@ function download(filename, text) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/**
+ * Import a project file. Size and contents are validated before anything changes; on any failure the current editor,
+ * session and playback are left as they were and the status line says why (docs/ARCHITECTURE.md, "Import behaviour").
+ */
 async function openFile(file) {
+  let parsed;
   try {
-    const { source, workspace } = parseMotionLabFile(await file.text());
-    loadWorkspace(workspace, `Opened ${file.name}${source === 'program' ? ' (program converted to blocks)' : ''}.`);
+    checkFileSize(file.size);
+    parsed = parseMotionLabFile(await file.text());
   } catch (err) {
     setStatus(err instanceof FileFormatError ? `Could not open ${file.name}: ${err.message}` : `Could not open ${file.name}.`, 'error');
+    return;
+  }
+  try {
+    loadWorkspace(parsed.workspace, `Opened ${file.name}${parsed.source === 'program' ? ' (program converted to blocks)' : ''}.`);
+  } catch (err) {
+    setStatus(`Could not open ${file.name}: the editor rejected it (${err.message}). Your previous blocks were kept.`, 'error');
   }
 }
 
@@ -286,8 +306,8 @@ function wireControls() {
   });
   els.save.addEventListener('click', () => {
     const json = Blockly.serialization.workspaces.save(state.workspace);
-    download(WORKSPACE_FILENAME, serializeWorkspaceFile(json, state.compiled?.ok ? state.compiled.program : null));
-    setStatus(`Saved ${WORKSPACE_FILENAME}.`);
+    download(PROJECT_FILENAME, serializeProjectFile(json, state.compiled?.ok ? state.compiled.program : null));
+    setStatus(`Saved ${PROJECT_FILENAME}.`);
   });
   els.exportBtn.addEventListener('click', () => {
     if (!state.compiled?.ok) return;
