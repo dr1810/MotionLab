@@ -103,14 +103,27 @@ Open also accepts a **bare program v1** (`{ "version": 1, "commands": [...] }`).
 | `FILE_TOO_MANY_BLOCKS` | more than 600 blocks |
 | `FILE_INVALID_PROGRAM` | a bare program that cannot become blocks (no `commands` array, or an unknown op) |
 
-### Import behaviour in the page (`static/js/lab.js`)
+### Import behaviour (`static/js/motionlab/project-io.js`, used by `static/js/lab.js`)
+
+`createProjectActions({ editor, session, recompile, getCompiled })` → `{ open(file), save(), exportProgram(),
+replaceWorkspace(json) }`. `open` never throws; it returns `{ ok: true, source, message }` or
+`{ ok: false, code, message }`, where `code` is a `FILE_*` code, `FILE_READ_FAILED` or `EDITOR_REJECTED`.
 
 1. The size is checked from `File.size` before the file is read.
 2. The file is parsed and validated. **On any error, the current editor, its session and playback are left exactly
-   as they were**, and the status line explains the problem.
-3. On success, playback stops, the previous simulation is dropped, and the workspace is replaced and recompiled from
-   the blocks. If Blockly itself rejects the workspace at this point (it shouldn't, after validation), the previous
-   workspace is restored and the error is shown.
+   as they were** (a running simulation keeps running), and the status line explains the problem and says the
+   current blocks were kept.
+3. On success, playback stops, the previous simulation is dropped (even if the program happens to be identical), and
+   the workspace is replaced and recompiled from the blocks. The file's `program` field is ignored. If Blockly itself
+   rejects the workspace at this point (it shouldn't, after validation), the previous workspace is restored and the
+   error is shown.
+
+The **editor state is authoritative**: runtime commands are regenerated from the blocks when a file is opened, before
+every Run and Step, and before Save and Export (pending edits are compiled first).
+
+What a saved project restores: the order of blocks in each stack (`next` chains), the positions of top-level blocks
+(`x`, `y`), every block's stable `id`, every field value, and loose (disconnected) stacks.
+`tests/project-io.test.js` checks this round-trip byte for byte, using the editor-authored fixture.
 
 ### Download
 

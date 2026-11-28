@@ -37,7 +37,7 @@ needs a server. Details and sources are in ARCHITECTURE.md.
 | `GET /static/js/simulation.js`, `/static/css/style.css` | 200 (`text/javascript`, `text/css`) |
 | `GET /lab` | **500, `TemplateNotFound: lab.html`** (template deleted). Fixed: page rebuilt |
 | `GET /fixtures/ball-and-box.program.json` | **404** (fixture deleted). Now 200 again |
-| `npm test` | not runnable (`package.json` deleted). Now 152/152 pass (+ 6 Python route tests) |
+| `npm test` | not runnable (`package.json` deleted). Now 162/162 pass (+ 6 Python route tests) |
 
 ## Current state
 
@@ -70,6 +70,7 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `static/js/motionlab/session.js` | session controller: the active session plus Run/Pause/Reset/Step, one animation loop, fresh vs kept sessions, metrics text, high-DPI canvas sizing (DOM-free; the page injects the engine, requestAnimationFrame and the clock) |
 | `tests/doubles/fixture-simulation.js` | fixture-backed `createSimulation` double (snapshots from `ball-and-box.snapshots.json`, counts steps and resets) and a manual frame clock, for isolated UI tests |
 | `static/js/motionlab/files.js` | project envelope v1: save/open, validation, `FileFormatError` codes (see ARCHITECTURE.md) |
+| `static/js/motionlab/project-io.js` | Files and Download actions: open (size check first, nothing changes on failure, fresh session on success), save, export (DOM-free; the page passes a Blockly editor adapter) |
 | `static/js/motionlab/index.js` | public re-exports (also `programToWorkspace`) |
 | `static/js/lab.js` | page glue: Blockly ↔ compiler ↔ engine ↔ canvas, files, autosave. No logic worth unit-testing lives here |
 | `templates/lab.html`, `static/css/lab.css` | the block lab shell: top bar, Code Area, Simulation Output, Code Blocks tray |
@@ -78,7 +79,7 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `fixtures/ball-and-box.snapshots.json`, `scripts/record-fixture.js` | real snapshots recorded headlessly (setup → impact → rest), and the recorder |
 | `fixtures/ball-and-box.editor.{workspace,program}.json` | a stack authored in the real editor (Blockly-generated ids, one disconnected block) and the exact program it must compile to |
 | `static/js/motionlab/outline.js` | text model of the Code Area for the keyboard stack list: stack in order, loose stacks, unit-labelled summaries |
-| `tests/{contract,engine,integrator,contacts,simulation,project-files,compile,view,frontend,outline,editor-fixture,session}.test.js`, `tests/helpers.js` | 152 Node tests |
+| `tests/{contract,engine,integrator,contacts,simulation,project-files,project-io,compile,view,frontend,outline,editor-fixture,session}.test.js`, `tests/helpers.js` | 162 Node tests |
 | `tests/test_routes.py` | 6 Python tests: routes are read-only GETs, writes get 405, the route table matches ARCHITECTURE.md |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
@@ -185,6 +186,14 @@ no JavaScript is generated, plus the stack-list model):
 node --test tests/editor-fixture.test.js tests/outline.test.js
 ```
 
+Files and Download tests (Save → Open round-trip of the editor-authored fixture, malformed / newer-version / oversized
+/ unreadable files leave the editor and a running session untouched, a successful open stops playback and starts
+fresh), plus the envelope tests:
+
+```bash
+node --test tests/project-io.test.js tests/project-files.test.js
+```
+
 Project file tests only (envelope round-trips and every import error code):
 
 ```bash
@@ -263,6 +272,20 @@ jsDelivr CDN.
     on load, so such a file can load slightly different from its JSON. Saved workspace files are exact.
 
 ## Known failures / open items
+
+- Files and Download: no failing cases (162/162 Node + 6/6 Python, 2026-11-27). Mutation-checked: not clearing the
+  session on open, checking the size only after reading, dropping the rollback when the editor rejects, and clearing
+  the session before validation each fail a `tests/project-io.test.js` test. (The first run of the rollback
+  mutation passed, because the fake editor threw before changing anything. The fake now clears first, as Blockly
+  does, and the mutation is caught.) Browser-checked on a fresh server:
+  - **Save project**, while running, wrote the moved stack position (50, 35), the edited mass 1.8, the added block's
+    Blockly id, and a program regenerated from the blocks. Playback kept running.
+  - **Export program** wrote exactly the compiled program.
+  - Opening a malformed file, a formatVersion 2 file, and a reported 3 MB file while running each showed the reason
+    plus "Your current blocks were kept". Editor, session and playback were all unchanged, and it kept playing.
+  - Opening the saved file stopped playback (running at tick 20), started a fresh session at tick 0, restored the
+    identical workspace, and regenerated the identical program.
+  - No console errors.
 
 - Playback tests: no failing cases (152/152 Node + 6/6 Python, 2026-11-27). Mutation-checked:
   - Pause not cancelling the frame, and Run not cancelling a pending frame, both fail the one-loop test.

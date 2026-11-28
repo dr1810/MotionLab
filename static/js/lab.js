@@ -7,9 +7,7 @@ import { BODY_BLOCK_TYPES, MAX_INSTANCES, TRAY, TRAY_DRAG_TYPE, defineBlocks, un
 import { drawScene } from './motionlab/renderer.js';
 import { outlineWorkspace } from './motionlab/outline.js';
 import { createSessionController, formatMetrics, prepareCanvas } from './motionlab/session.js';
-import {
-  FileFormatError, PROGRAM_FILENAME, PROJECT_FILENAME, checkFileSize, parseMotionLabFile, serializeProgram, serializeProjectFile,
-} from './motionlab/files.js';
+import { createProjectActions } from './motionlab/project-io.js';
 
 const STORAGE_KEY = 'motionlab.workspace.v1';
 const EXAMPLE_URL = '/fixtures/ball-and-box.workspace.json';
@@ -31,6 +29,7 @@ const state = {
   lastJson: null, // last compiled serialization, to skip no-op recompiles
   compiled: null, // { ok, program, errors, warnings }
   session: null, // session controller (static/js/motionlab/session.js): the active simulation and its playback
+  project: null, // Files and Download actions (static/js/motionlab/project-io.js)
   current: null, // latest snapshot drawn
   view: null,
   note: '', // what the user just did (e.g. "Added set gravity."), shown before the next compile's status
@@ -359,29 +358,36 @@ function flushCompile() {
  * workspace is put back and the error is rethrown, so a failed load never leaves the editor empty.
  */
 function loadWorkspace(json, message) {
-  const previous = Blockly.serialization.workspaces.save(state.workspace);
-  state.session.clear(); // loading always starts a fresh session, even if the program happens to be the same
-  state.lastJson = null;
-  Blockly.Events.disable();
-  try {
-    state.workspace.clear();
-    Blockly.serialization.workspaces.load(json, state.workspace);
-  } catch (err) {
-    state.workspace.clear();
-    Blockly.serialization.workspaces.load(previous, state.workspace);
-    throw err;
-  } finally {
-    Blockly.Events.enable();
-    compileNow();
-  }
-  if (message && state.compiled?.ok) setStatus(message);
+  state.project.replaceWorkspace(json); // stops playback, fresh session; restores the old blocks if Blockly rejects
+  if (message) announceLoaded(message);
 }
+
+/** After a successful load: say what happened, then either "Press Run." or how many problems need fixing. */
+function announceLoaded(message) {
+  const c = state.compiled;
+  if (c?.ok) setStatus(state.session.initial?.bodies.length ? `${message} Press Run.` : message);
+  else setStatus(`${message} ${c?.errors.length ?? 0} problem${c?.errors.length === 1 ? '' : 's'} to fix before running.`, 'error');
+}
+
+/** Blockly side of the editor adapter used by project-io.js: the workspace as JSON, in and out. */
+const blocklyEditor = {
+  save: () => Blockly.serialization.workspaces.save(state.workspace),
+  load(json) {
+    Blockly.Events.disable();
+    try {
+      state.workspace.clear();
+      Blockly.serialization.workspaces.load(json, state.workspace);
+    } finally {
+      Blockly.Events.enable();
+    }
+  },
+};
 
 async function loadExample() {
   try {
     const res = await fetch(EXAMPLE_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    loadWorkspace(await res.json(), 'Loaded the ball-and-box example. Press Run.');
+    loadWorkspace(await res.json(), 'Loaded the ball-and-box example.');
   } catch (err) {
     setStatus(`Could not load the example (${err.message}).`, 'error');
   }
@@ -550,19 +556,9 @@ function download(filename, text) {
  * session and playback are left as they were and the status line says why (docs/ARCHITECTURE.md, "Import behaviour").
  */
 async function openFile(file) {
-  let parsed;
-  try {
-    checkFileSize(file.size);
-    parsed = parseMotionLabFile(await file.text());
-  } catch (err) {
-    setStatus(err instanceof FileFormatError ? `Could not open ${file.name}: ${err.message}` : `Could not open ${file.name}.`, 'error');
-    return;
-  }
-  try {
-    loadWorkspace(parsed.workspace, `Opened ${file.name}${parsed.source === 'program' ? ' (program converted to blocks)' : ''}.`);
-  } catch (err) {
-    setStatus(`Could not open ${file.name}: the editor rejected it (${err.message}). Your previous blocks were kept.`, 'error');
-  }
+  const result = await state.project.open(file);
+  if (result.ok) announceLoaded(result.message);
+  else setStatus(result.message, 'error'); // nothing else changed: editor, session and playback are as they were
 }
 
 // ---------- boot ----------
@@ -592,14 +588,17 @@ function wireControls() {
     if (file) openFile(file);
   });
   els.save.addEventListener('click', () => {
-    const json = Blockly.serialization.workspaces.save(state.workspace);
-    download(PROJECT_FILENAME, serializeProjectFile(json, state.compiled?.ok ? state.compiled.program : null));
-    setStatus(`Saved ${PROJECT_FILENAME}.`);
+    flushCompile(); // so the embedded program matches the blocks on screen
+    const { filename, text } = state.project.save();
+    download(filename, text);
+    setStatus(`Saved ${filename} (blocks, their order, positions, ids and values${state.compiled?.ok ? ', plus the program' : ''}).`);
   });
   els.exportBtn.addEventListener('click', () => {
-    if (!state.compiled?.ok) return;
-    download(PROGRAM_FILENAME, serializeProgram(state.compiled.program));
-    setStatus(`Exported ${PROGRAM_FILENAME}.`);
+    flushCompile();
+    const exported = state.project.exportProgram();
+    if (!exported) return;
+    download(exported.filename, exported.text);
+    setStatus(`Exported ${exported.filename}.`);
   });
   const showBlock = (e) => {
     const li = e.target.closest('li[data-block-id]');
@@ -662,6 +661,15 @@ function boot() {
     onRender: render,
     onState: updatePlaybackButtons,
   });
+  state.project = createProjectActions({
+    editor: blocklyEditor,
+    session: state.session,
+    recompile: () => {
+      state.lastJson = null; // force a compile even if the JSON matches what was compiled before
+      compileNow();
+    },
+    getCompiled: () => state.compiled,
+  });
 
   state.workspace.addChangeListener((e) => {
     if (e.isUiEvent) return;
@@ -678,7 +686,7 @@ function boot() {
   }
   if (saved) {
     try {
-      loadWorkspace(saved, 'Restored your last workspace. Press Example for the ball-and-box scene.');
+      loadWorkspace(saved, 'Restored your last workspace (Example loads the ball-and-box scene).');
       return;
     } catch {
       setStatus('Saved workspace could not be restored; loading the example.', 'error');
