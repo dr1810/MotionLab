@@ -3,7 +3,7 @@
   "commands": [
     {"op": "setGravity", "blockId": "Hq(01w@y{rG91+(/CU3#", "x": 0, "y": -9.81},
     {"op": "createBox", "blockId": "cEw+!U9F=1G]{ws-zs4W", "id": "box", "x": 2, "y": 0.5, "width": 1, "height": 1, "mass": 2, "restitution": 0.2, "static": false},
-    {"op": "createCircle", "blockId": "@Ee(rWyVT8zDH*+pzBs!", "id": "ball", "x": 0, "y": 3, "radius": 0.25, "mass": 1, "restitution": 0.6, "static": false},
+    {"op": "createCircle", "blockId": "@Ee(rWyVT8zDH*+pzBs!", "id": "ball", "x": 0, "y": 2, "radius": 0.25, "mass": 1, "restitution": 0.6, "static": false},
     {"op": "setVelocity", "blockId": "!k3.A,,B/KCgwa.YYsv~", "id": "ball", "vx": 1.5, "vy": 0},
     {"op": "applyForce", "blockId": "FPz]5v5u?)PA*GErWE(v", "id": "ball", "fx": 120, "fy": 0}
   ]

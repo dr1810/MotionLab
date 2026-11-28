@@ -18,7 +18,7 @@
             "next": { "block": {
               "type": "motionlab_create_circle",
               "id": "blk-ball",
-              "fields": { "ID": "ball", "X": 0, "Y": 3, "RADIUS": 0.25, "MASS": 1, "RESTITUTION": 0.6, "STATIC": false },
+              "fields": { "ID": "ball", "X": 0, "Y": 2, "RADIUS": 0.25, "MASS": 1, "RESTITUTION": 0.6, "STATIC": false },
               "next": { "block": {
                 "type": "motionlab_set_velocity",
                 "id": "blk-velocity",

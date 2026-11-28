@@ -208,7 +208,7 @@ test('wired to the real engine: 60 frames at 60 Hz equals 120 direct engine step
 test('formatMetrics: clock and per-body rows with 3 decimals', () => {
   const m = formatMetrics(fixtureSnapshot(1));
   assert.equal(m.clock, 'tick 1 · 0.008 s');
-  assert.deepEqual(m.rows, [['box', '2.000', '0.500', '0.000', '0.000'], ['ball', '0.021', '2.999', '2.500', '-0.082']]);
+  assert.deepEqual(m.rows, [['box', '2.000', '0.500', '0.000', '0.000'], ['ball', '0.021', '1.999', '2.500', '-0.082']]);
   assert.deepEqual(formatMetrics(null), { clock: 'tick – · – s', rows: [] });
 });
 

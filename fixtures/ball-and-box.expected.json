@@ -7,7 +7,7 @@
     "initial: createSimulation(program).snapshot(), and also the return value of reset() at any later point.",
     "afterTick1: the first step(). Hand-derived with semi-implicit Euler, dt = 1/120 s:",
     "ball vx = 1.5 + (120 N / 1 kg) * dt = 2.5; x = 2.5 * dt = 0.0208333...",
-    "ball vy = -9.81 * dt = -0.08175; y = 3 + vy * dt = 2.99931875",
+    "ball vy = -9.81 * dt = -0.08175; y = 2 + vy * dt = 1.99931875",
     "box: gravity pulls it 0.00068 m into the floor; the floor puts it back at y = 0.5 and, because 0.08175 m/s < REST_SPEED (0.2), zeroes vy.",
     "afterTick2: the force applies on tick 1 only, so ball vx stays 2.5 (x = 2 * 2.5 * dt); vy = -2 * 9.81 * dt = -0.1635; y = y1 + vy * dt."
   ],
@@ -16,7 +16,7 @@
     "time": 0,
     "bodies": [
       { "id": "box", "shape": "box", "position": { "x": 2, "y": 0.5 }, "velocity": { "x": 0, "y": 0 }, "dimensions": { "width": 1, "height": 1 }, "static": false },
-      { "id": "ball", "shape": "circle", "position": { "x": 0, "y": 3 }, "velocity": { "x": 1.5, "y": 0 }, "dimensions": { "radius": 0.25 }, "static": false }
+      { "id": "ball", "shape": "circle", "position": { "x": 0, "y": 2 }, "velocity": { "x": 1.5, "y": 0 }, "dimensions": { "radius": 0.25 }, "static": false }
     ]
   },
   "afterTick1": {
@@ -24,7 +24,7 @@
     "time": 0.008333333333333333,
     "bodies": [
       { "id": "box", "shape": "box", "position": { "x": 2, "y": 0.5 }, "velocity": { "x": 0, "y": 0 }, "dimensions": { "width": 1, "height": 1 }, "static": false },
-      { "id": "ball", "shape": "circle", "position": { "x": 0.020833333333333332, "y": 2.99931875 }, "velocity": { "x": 2.5, "y": -0.08175 }, "dimensions": { "radius": 0.25 }, "static": false }
+      { "id": "ball", "shape": "circle", "position": { "x": 0.020833333333333332, "y": 1.99931875 }, "velocity": { "x": 2.5, "y": -0.08175 }, "dimensions": { "radius": 0.25 }, "static": false }
     ]
   },
   "afterTick2": {
@@ -32,7 +32,7 @@
     "time": 0.016666666666666666,
     "bodies": [
       { "id": "box", "shape": "box", "position": { "x": 2, "y": 0.5 }, "velocity": { "x": 0, "y": 0 }, "dimensions": { "width": 1, "height": 1 }, "static": false },
-      { "id": "ball", "shape": "circle", "position": { "x": 0.041666666666666664, "y": 2.997956250 }, "velocity": { "x": 2.5, "y": -0.1635 }, "dimensions": { "radius": 0.25 }, "static": false }
+      { "id": "ball", "shape": "circle", "position": { "x": 0.041666666666666664, "y": 1.99795625 }, "velocity": { "x": 2.5, "y": -0.1635 }, "dimensions": { "radius": 0.25 }, "static": false }
     ]
   }
 }

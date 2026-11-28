@@ -184,20 +184,20 @@ test('headless run, setup through impact: the story the recording tells', () => 
   const pre = body(ev.preImpact.snapshot, 'ball');
   const hit = body(ev.impact.snapshot, 'ball');
   assert.equal(ev.impact.tick, ev.preImpact.tick + 1);
-  assert.ok(pre.velocity.y < 0 && hit.velocity.y > 0, 'impact reverses the ball');
-  assert.ok(hit.position.y - 0.25 < 1 + 0.001 && hit.position.y > 1, 'impact happens on the box top (y = 1)');
-  assert.ok(hit.position.x >= 1.5 - 0.25 && hit.position.x <= 2.5 + 0.25, 'within the box span');
+  assert.equal(body(ev.preImpact.snapshot, 'box').velocity.x, 0, 'box at rest before the impact');
+  assert.ok(pre.position.y > 0.25 && pre.position.y < 1, 'the ball meets the box on its left face (centre below the box top)');
+  assert.ok(pre.velocity.x > 0 && hit.velocity.x < 0, 'the light ball bounces back off the heavier box');
+  const after = ev.afterImpact.snapshot;
+  assert.ok(Math.abs(body(after, 'ball').velocity.x + 1 / 6) < 1e-9 && Math.abs(body(after, 'box').velocity.x - 4 / 3) < 1e-9, 'measured post-collision velocities');
   assert.equal(body(ev.floorImpact.snapshot, 'ball').position.y, 0.25);
   assert.deepEqual(body(ev.rest.snapshot, 'ball').velocity, { x: body(ev.rest.snapshot, 'ball').velocity.x, y: 0 });
-  for (const e of rec.events) {
-    const bx = body(e.snapshot, 'box');
-    assert.ok(Math.abs(bx.position.x - 2) < 1e-9 && bx.position.y === 0.5, `${e.name}: box stays put`);
-  }
+  for (const e of rec.events) assert.equal(body(e.snapshot, 'box').position.y, 0.5, `${e.name}: box stays on the floor`);
+  assert.ok(body(ev.end.snapshot, 'box').position.x > 20, 'the box keeps sliding (no friction)');
 });
 
 // ---------------------------------------------------------------- frontend integration with recorded snapshots
 
-test('frontend can fit and draw every recorded snapshot; impact frame shows the ball on the box', () => {
+test('frontend can fit and draw every recorded snapshot; impact frame shows the ball touching the box', () => {
   const rec = loadJson('fixtures/ball-and-box.snapshots.json');
   const size = { width: 640, height: 320 };
   const calls = [];
@@ -209,9 +209,10 @@ test('frontend can fit and draw every recorded snapshot; impact frame shows the 
   const impact = rec.events.find((e) => e.name === 'impact').snapshot;
   const view = fitView(impact, size);
   const ball = body(impact, 'ball');
-  const boxTopPx = view.toCanvas(2, 1).y;
-  const ballBottomPx = view.toCanvas(ball.position.x, ball.position.y - ball.dimensions.radius).y;
-  assert.ok(Math.abs(ballBottomPx - boxTopPx) <= 1, `ball bottom ${ballBottomPx}px vs box top ${boxTopPx}px`);
+  const box = body(impact, 'box');
+  const boxLeftPx = view.toCanvas(box.position.x - box.dimensions.width / 2, 0).x;
+  const ballRightPx = view.toCanvas(ball.position.x + ball.dimensions.radius, 0).x;
+  assert.ok(Math.abs(ballRightPx - boxLeftPx) <= 1, `ball right edge ${ballRightPx}px vs box left face ${boxLeftPx}px`);
   assert.ok(view.toCanvas(0, 0).y === view.floorPx, 'floor row from the view');
 });
 

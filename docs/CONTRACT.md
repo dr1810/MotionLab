@@ -174,7 +174,7 @@ sim.reset();    // back to the compiled initial scene, tick 0, forces re-armed; 
   "tick": 0,
   "time": 0,
   "bodies": [
-    { "id": "ball", "shape": "circle", "position": {"x": 0, "y": 3}, "velocity": {"x": 1.5, "y": 0},
+    { "id": "ball", "shape": "circle", "position": {"x": 0, "y": 2}, "velocity": {"x": 1.5, "y": 0},
       "dimensions": {"radius": 0.25}, "static": false },
     { "id": "box", "shape": "box", "position": {"x": 2, "y": 0.5}, "velocity": {"x": 0, "y": 0},
       "dimensions": {"width": 1, "height": 1}, "static": false }
@@ -238,7 +238,7 @@ that big is safe up to 30 m/s; two 0.01 m-thick bodies only up to 1.2 m/s. Above
 straight through a thin one, or be pushed out of the wrong side. The floor is an infinite half-plane, so nothing
 tunnels through it.
 
-The canonical fixture peaks at 6.32 m/s relative speed (tick 71, just before the ball lands on the box), 21% of its
+The canonical fixture peaks at 5.995 m/s relative speed (tick 71, the ball falling just after the side impact), 20% of its
 30 m/s limit (`tests/contacts.test.js`
 checks this for 20 s). The program limits (velocity up to 1000 m/s, size down to 0.01 m) allow unsafe scenes on
 purpose. Those scenes are valid; they are just outside the solver's accuracy range.
@@ -284,29 +284,39 @@ exactly program v1.
 
 | File | Content |
 |---|---|
-| `fixtures/ball-and-box.program.json` | program v1: gravity −9.81; box `box` 1×1 m, 2 kg, e 0.2 at (2, 0.5) resting on the floor; ball `ball` r 0.25 m, 1 kg, e 0.6 at (0, 3); ball velocity (1.5, 0); force (120, 0) N on the ball |
+| `fixtures/ball-and-box.program.json` | program v1: gravity −9.81; box `box` 1×1 m, 2 kg, e 0.2 at (2, 0.5) resting on the floor; ball `ball` r 0.25 m, 1 kg, e 0.6 at (0, 2); ball velocity (1.5, 0); force (120, 0) N on the ball. The ball hits the box's **left face** at tick 61 |
 | `fixtures/ball-and-box.workspace.json` | hand-written Blockly workspace JSON that compiles to exactly that program (block ids = blockIds, start block `blk-start`). Example loads this |
-| `fixtures/ball-and-box.editor.workspace.json` | **editor-authored**: built in the real block lab on 2026-11-27 (New, five tray-chip clicks, fields set, plus one disconnected Set Gravity with y = −1.62 dropped beside the stack) and saved with `Blockly.serialization.workspaces.save`. Block ids are Blockly-generated |
+| `fixtures/ball-and-box.editor.workspace.json` | **editor-authored**: built in the real block lab on 2026-11-27 (New, five tray-chip clicks, fields set, plus one disconnected Set Gravity with y = −1.62 dropped beside the stack) and saved with `Blockly.serialization.workspaces.save`. Block ids are Blockly-generated. The ball's `Y` was later edited from 3 to 2, the only change, when the canonical scene moved (see below) |
 | `fixtures/ball-and-box.editor.program.json` | the expected program for it: the canonical program with each `blockId` replaced by the editor block id in stack order. `compileWorkspace(editor workspace).program` must equal it exactly, with one `DISCONNECTED_BLOCK` warning for the moon-gravity block |
 | `fixtures/ball-and-box.expected.json` | `initial`, `afterTick1`, `afterTick2` snapshots, tolerance 1e-9, with derivations |
+| `fixtures/ball-and-box.light-box.motionlab.json` | **second run** for the demo: a project file identical to the canonical workspace except the Create Box `MASS` (2 → 0.5 kg). Made by `node scripts/compare-box-mass.js --write`; measured results in `docs/evidence/box-mass-comparison.json` |
 | `fixtures/ball-and-box.snapshots.json` | **recorded** real engine snapshots at named events from a headless 20 s run, plus a 0.1 s ball trajectory for the first 4 s. Regenerate with `npm run fixture:record`; compared exactly by `tests/simulation.test.js` and `npm run fixture:check` |
 
 Expected results:
 
 - `initial` (tick 0, time 0): exactly the program's positions. Box velocity is (0, 0), ball velocity is (1.5, 0).
-- `afterTick1` (time 1/120): ball v = (2.5, −0.08175), p = (0.0208333…, 2.99931875). The box is unchanged at
+- `afterTick1` (time 1/120): ball v = (2.5, −0.08175), p = (0.0208333…, 1.99931875). The box is unchanged at
   (2, 0.5) with v = 0.
-- `afterTick2`: ball vx stays 2.5 (the force acted on tick 1 only); v = (2.5, −0.1635), p = (0.0416666…, 2.99795625).
-- Recorded events (`fixtures/ball-and-box.snapshots.json`; ball position and velocity, rounded here). The box stays
-  at (2, 0.5) throughout:
+- `afterTick2`: ball vx stays 2.5 (the force acted on tick 1 only); v = (2.5, −0.1635), p = (0.0416666…, 1.99795625).
+- Recorded events (`fixtures/ball-and-box.snapshots.json`, rounded here). The box stays on the floor (y = 0.5):
 
-| event | tick | time (s) | ball (x, y) m | ball (vx, vy) m/s |
-|---|---|---|---|---|
-| setup | 0 | 0 | (0, 3) | (1.5, 0) |
-| firstTick | 1 | 0.0083 | (0.0208, 2.9993) | (2.5, −0.0818) |
-| preImpact | 71 | 0.5917 | (1.4792, 1.2587) | (2.5, −5.8043) |
-| impact (on the box top-left edge) | 72 | 0.6 | (1.5, 1.2476) | (2.5, 3.4811) |
-| peakAfterBounce | 115 | 0.9583 | (2.3958, 1.8505) | (2.5, −0.0342) |
-| floorImpact | 183 | 1.525 | (3.8125, 0.25) | (2.5, 3.3559) |
-| rest (y = 0.25, vy = 0 from here on) | 375 | 3.125 | (7.8125, 0.25) | (2.5, 0) |
-| end | 2400 | 20 | (50, 0.25) | (2.5, 0) |
+| event | tick | time (s) | ball (x, y) m | ball (vx, vy) m/s | box (x m, vx m/s) |
+|---|---|---|---|---|---|
+| setup | 0 | 0 | (0, 2) | (1.5, 0) | (2, 0) |
+| firstTick | 1 | 0.0083 | (0.0208, 1.9993) | (2.5, −0.0818) | (2, 0) |
+| preImpact | 60 | 0.5 | (1.25, 0.7533) | (2.5, −4.905) | (2, 0) |
+| impact | 61 | 0.5083 | (1.2573, 0.7118) | (−0.1667, −4.9868) | (2.0068, 1.3333) |
+| afterImpact | 67 | 0.5583 | (1.249, 0.4481) | (−0.1667, −5.4773) | (2.0734, 1.3333) |
+| floorImpact | 72 | 0.6 | (1.242, 0.25) | (−0.1667, 3.5316) | (2.129, 1.3333) |
+| rest | 269 | 2.2417 | (0.9684, 0.25) | (−0.1667, 0) | (4.3179, 1.3333) |
+| end | 2400 | 20 | (−1.9913, 0.25) | (−0.1667, 0) | (27.9957, 1.3333) |
+
+- Post-collision horizontal velocities (from tick 61 on): ball −1/6 m/s, box 4/3 m/s. That is the 1D result with
+  restitution 0.6 (ball 1 kg at 2.5 m/s, box 2 kg at rest). Horizontal momentum is 2.5 kg·m/s before and after.
+
+**Change log (2026-11-27): the ball now starts at y = 2 m (was 3 m).** From 3 m the ball landed on *top* of the
+box. On a frictionless floor a vertical hit gives the box no horizontal push, so the box never moved and its mass
+had no visible effect, which defeated the box-mass demo. From 2 m the ball meets the box's left face at 0.51 s with
+its centre at y ≈ 0.75 m (inside the box's 0–1 m height). The program, both workspace fixtures, the expected file
+(hand-derived ticks 1 and 2 shift by −1 m in y), the recorded snapshots and the tests were updated together. The
+contract itself did not change.

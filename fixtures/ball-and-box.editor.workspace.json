@@ -36,7 +36,7 @@
                     "fields": {
                       "ID": "ball",
                       "X": 0,
-                      "Y": 3,
+                      "Y": 2,
                       "RADIUS": 0.25,
                       "MASS": 1,
                       "RESTITUTION": 0.6,

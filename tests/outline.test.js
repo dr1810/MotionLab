@@ -10,7 +10,7 @@ test('fixture outline: stack in run order with unit-labelled summaries', () => {
     [1, 'blk-start', 'When simulation starts'],
     [2, 'blk-gravity', 'Set Gravity (0, -9.81) m/s²'],
     [3, 'blk-box', 'Create Box "box" at (2, 0.5) m, 1 × 1 m, 2 kg, restitution 0.2'],
-    [4, 'blk-ball', 'Create Ball "ball" at (0, 3) m, radius 0.25 m, 1 kg, restitution 0.6'],
+    [4, 'blk-ball', 'Create Ball "ball" at (0, 2) m, radius 0.25 m, 1 kg, restitution 0.6'],
     [5, 'blk-velocity', 'Set Initial Velocity of "ball": (1.5, 0) m/s'],
     [6, 'blk-force', 'Apply Force to "ball": (120, 0) N'],
   ]);

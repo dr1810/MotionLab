@@ -7,7 +7,7 @@ const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArr
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : '?');
 const name = (v) => (typeof v === 'string' && v !== '' ? `"${v}"` : '(no id)');
 
-/** One-line, unit-labelled description of a block, e.g. `Create Ball "ball" at (0, 3) m, radius 0.25 m, 1 kg`. */
+/** One-line, unit-labelled description of a block, e.g. `Create Ball "ball" at (0, 2) m, radius 0.25 m, 1 kg`. */
 export function describeBlock(block) {
   const f = isPlainObject(block.fields) ? block.fields : {};
   const isStatic = f.STATIC === true || f.STATIC === 'TRUE';

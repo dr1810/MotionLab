@@ -1,0 +1,66 @@
+{
+  "contractVersion": 1,
+  "generatedBy": "node scripts/compare-box-mass.js --write",
+  "changedInput": {
+    "block": "Create Box (blk-box)",
+    "field": "MASS",
+    "from": 2,
+    "to": 0.5,
+    "unit": "kg"
+  },
+  "note": "Horizontal velocities in m/s, measured 0.05 s after the first tick the box moves; restitution max(0.6, 0.2) = 0.6; the floor is frictionless, so these speeds then stay constant.",
+  "runs": {
+    "canonical": {
+      "masses": {
+        "box": 2,
+        "ball": 1
+      },
+      "impactTick": 61,
+      "impactTime": 0.5083333333333333,
+      "before": {
+        "ball": 2.5,
+        "box": 0
+      },
+      "after": {
+        "ball": -0.16666666666666652,
+        "box": 1.3333333333333333
+      },
+      "momentumBefore": 2.5,
+      "momentumAfter": 2.5,
+      "at5s": {
+        "ballX": 0.5086883555555581,
+        "boxX": 7.995655822222201
+      },
+      "expectedAfter": {
+        "ball": -0.16666666666666663,
+        "box": 1.3333333333333333
+      }
+    },
+    "lightBox": {
+      "masses": {
+        "box": 0.5,
+        "ball": 1
+      },
+      "impactTick": 61,
+      "impactTime": 0.5083333333333333,
+      "before": {
+        "ball": 2.5,
+        "box": 0
+      },
+      "after": {
+        "ball": 1.1666666666666667,
+        "box": 2.6666666666666665
+      },
+      "momentumBefore": 2.5,
+      "momentumAfter": 2.5,
+      "at5s": {
+        "ballX": 6.504344177777748,
+        "boxX": 13.991311644444401
+      },
+      "expectedAfter": {
+        "ball": 1.1666666666666667,
+        "box": 2.6666666666666665
+      }
+    }
+  }
+}

@@ -123,7 +123,7 @@ test('drawScene draws the floor at view.floorPx and each body once', () => {
   assert.deepEqual(floorFill, ['fillRect', 0, 260, 600, 40]);
   const arcs = ctx.calls.filter((c) => c[0] === 'arc');
   assert.equal(arcs.length, 1);
-  assert.deepEqual(arcs[0].slice(1, 4), [100, 260 - 150, 12.5], 'ball at (0, 3) m, r 0.25 m');
+  assert.deepEqual(arcs[0].slice(1, 4), [100, 260 - 100, 12.5], 'ball at (0, 2) m, r 0.25 m');
   const boxes = ctx.calls.filter((c) => c[0] === 'strokeRect');
   assert.deepEqual(boxes, [['strokeRect', 175, 210, 50, 50]], 'box at (2, 0.5) m, 1x1 m');
   const labels = ctx.calls.filter((c) => c[0] === 'fillText').map((c) => c[1]);

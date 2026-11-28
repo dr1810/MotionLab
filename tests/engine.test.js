@@ -146,22 +146,30 @@ test('no dynamic body ends a step below the floor (fixture, 20 s)', () => {
   }
 });
 
-test('fixture: ball bounces off the top of the floor-supported box, which stays put', () => {
+test('fixture: ball hits the side of the box; horizontal momentum is conserved and restitution is 0.6', () => {
   const sim = createSimulation(program());
-  let prev = body(sim.snapshot(), 'ball');
-  let bounce = null;
-  for (let i = 1; i <= 240 && !bounce; i++) {
+  let prev = sim.snapshot();
+  let hit = null;
+  for (let i = 1; i <= 240 && !hit; i++) {
     const s = sim.step();
-    const ball = body(s, 'ball');
-    if (prev.velocity.y < 0 && ball.velocity.y > 0) bounce = { tick: i, before: prev.velocity.y, after: ball.velocity.y, ball, box: body(s, 'box') };
-    prev = ball;
+    if (body(s, 'box').velocity.x > 0) hit = { tick: i, before: prev, after: s };
+    prev = s;
   }
-  assert.ok(bounce, 'ball bounced');
-  assert.ok(bounce.ball.position.y > 1, 'bounce happened on the box top (y > box top), not the floor');
-  // Restitution acts on the closing speed at contact time (ball vs. a box that has just gained g*dt downward).
-  assert.ok(Math.abs(bounce.after + 0.6 * bounce.before) < 0.01, `restitution 0.6: ${bounce.before} -> ${bounce.after}`);
-  assertClose(bounce.box.position, { x: 2, y: 0.5 }, 1e-9);
-  assertClose(bounce.box.velocity, { x: 0, y: 0 }, 1e-9);
+  assert.ok(hit, 'the box was hit');
+  const ballBefore = body(hit.before, 'ball');
+  const ballAfter = body(hit.after, 'ball');
+  const boxAfter = body(hit.after, 'box');
+  // Contact on the left face: the ball centre is within the box's height (0..1 m), not above it.
+  assert.ok(ballBefore.position.y > 0.25 && ballBefore.position.y < 1, `side contact at y = ${ballBefore.position.y}`);
+  const m1 = 1;
+  const m2 = 2;
+  const u = ballBefore.velocity.x; // 2.5 m/s; the box was at rest
+  assert.ok(Math.abs(u - 2.5) < 1e-9);
+  assert.ok(Math.abs(m1 * ballAfter.velocity.x + m2 * boxAfter.velocity.x - m1 * u) < 1e-9, 'horizontal momentum');
+  assert.ok(Math.abs(boxAfter.velocity.x - ballAfter.velocity.x - 0.6 * u) < 1e-9, 'separation speed = 0.6 x closing speed');
+  assert.ok(Math.abs(ballAfter.velocity.x - (m1 - 0.6 * m2) * u / (m1 + m2)) < 1e-9, `ball ${ballAfter.velocity.x} = -1/6 m/s`);
+  assert.ok(Math.abs(boxAfter.velocity.x - (1 + 0.6) * m1 * u / (m1 + m2)) < 1e-9, `box ${boxAfter.velocity.x} = 4/3 m/s`);
+  assert.equal(boxAfter.velocity.y, 0, 'the floor still holds the box');
 });
 
 test('static bodies never move', () => {

@@ -37,7 +37,7 @@ needs a server. Details and sources are in ARCHITECTURE.md.
 | `GET /static/js/simulation.js`, `/static/css/style.css` | 200 (`text/javascript`, `text/css`) |
 | `GET /lab` | **500, `TemplateNotFound: lab.html`** (template deleted). Fixed: page rebuilt |
 | `GET /fixtures/ball-and-box.program.json` | **404** (fixture deleted). Now 200 again |
-| `npm test` | not runnable (`package.json` deleted). Now 162/162 pass (+ 6 Python route tests) |
+| `npm test` | not runnable (`package.json` deleted). Now 165/165 pass (+ 6 Python route tests) |
 
 ## Current state
 
@@ -79,7 +79,8 @@ Templates use `url_for('lab')` and `url_for('mini')`.
 | `fixtures/ball-and-box.snapshots.json`, `scripts/record-fixture.js` | real snapshots recorded headlessly (setup → impact → rest), and the recorder |
 | `fixtures/ball-and-box.editor.{workspace,program}.json` | a stack authored in the real editor (Blockly-generated ids, one disconnected block) and the exact program it must compile to |
 | `static/js/motionlab/outline.js` | text model of the Code Area for the keyboard stack list: stack in order, loose stacks, unit-labelled summaries |
-| `tests/{contract,engine,integrator,contacts,simulation,project-files,project-io,compile,view,frontend,outline,editor-fixture,session}.test.js`, `tests/helpers.js` | 162 Node tests |
+| `tests/{contract,engine,integrator,contacts,simulation,project-files,project-io,compile,view,frontend,outline,editor-fixture,session,demo}.test.js`, `tests/helpers.js` | 165 Node tests |
+| `scripts/compare-box-mass.js`, `fixtures/ball-and-box.light-box.motionlab.json`, `docs/evidence/` | demo second run (box mass only), its project file, and the measured results and screenshots |
 | `tests/test_routes.py` | 6 Python tests: routes are read-only GETs, writes get 405, the route table matches ARCHITECTURE.md |
 | `package.json` | `"type": "module"`, `test` / `check` scripts |
 
@@ -232,6 +233,13 @@ npm run fixture:check
 npm run fixture:record
 ```
 
+Demo comparison (canonical vs. light box, measured post-collision velocities; add `--write` to regenerate the variant
+project and the evidence file):
+
+```bash
+npm run demo:compare
+```
+
 Full check (syntax-check the legacy demo script, check the recorded snapshots, run the Node tests, then the server
 route tests):
 
@@ -272,6 +280,20 @@ jsDelivr CDN.
     on load, so such a file can load slightly different from its JSON. Saved workspace files are exact.
 
 ## Known failures / open items
+
+- **Live demo: integration found a fixture defect, now fixed** (2026-11-27). In the old canonical scene the ball
+  landed on top of the box, so the box never moved and changing its mass had no effect (measured: box vx 0 with
+  2 kg and with 0.5 kg). The ball now starts at y = 2 m and hits the box's side. Program, fixtures, expected
+  values, recorded snapshots and tests were updated together; see CONTRACT.md, "Canonical fixture" change log. The
+  contract did not change.
+- Demo second run (box mass 2 → 0.5 kg, one input changed), measured on screen and headlessly
+  (`npm run demo:compare`, evidence in [evidence/](evidence/README.md)):
+  - 2 kg box: the ball bounces back at −0.167 m/s, and the box slides at 1.333 m/s.
+  - 0.5 kg box: the ball keeps going at +1.167 m/s, and the box slides at 2.667 m/s.
+  - Both match the 1D formula with e = 0.6 and conserve momentum (2.5 kg·m/s).
+  - Browser-checked: Example → Run shows the side hit; typing 0.5 into the box's mass field, then Run, gave the
+    light-box numbers. Save, then Open, reproduced both the edited project and the Example exactly. The checked-in
+    light-box file opens and gives the same numbers. No console errors.
 
 - Files and Download: no failing cases (162/162 Node + 6/6 Python, 2026-11-27). Mutation-checked: not clearing the
   session on open, checking the size only after reading, dropping the rollback when the editor rejects, and clearing
@@ -354,9 +376,6 @@ jsDelivr CDN.
 - Engine change found while writing the tests: a ball landing on a box that rests on the floor lost its bounce with a
   naive solve-one-contact-at-a-time solver. The engine now uses a sequential-impulse solver with restitution targets
   fixed before solving. Test: `fixture: ball bounces off the top of the floor-supported box`.
-- Float residue: in the fixture the ball hits exactly on the box's top-left corner, which gives the box
-  vx ≈ 2.5e-14 m/s. With no friction it keeps that speed, a drift of about 1e-12 m per minute. Harmless, but don't
-  compare long runs with exact equality.
 - `.venv/bin/pip list` was reported to hang in this venv in an earlier session. I didn't re-run it. Use
   `.venv/bin/python -c "import importlib.metadata as m; print(m.version('flask'))"`.
 - The Browser-pane preview only attaches to an already-running server (`.claude/launch.json`, port 5050). Start
